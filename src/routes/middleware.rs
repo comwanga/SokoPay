@@ -1,3 +1,4 @@
+use crate::state::SharedState;
 use axum::{
     body::Body,
     extract::State,
@@ -7,7 +8,6 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use crate::state::SharedState;
 
 /// Require an `X-Api-Key` header that matches `config.api_key`.
 ///

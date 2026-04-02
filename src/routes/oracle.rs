@@ -1,8 +1,8 @@
+use crate::error::AppResult;
+use crate::state::SharedState;
 use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
-use crate::error::AppResult;
-use crate::state::SharedState;
 
 pub async fn current_rate(State(state): State<SharedState>) -> AppResult<Json<Value>> {
     // B-6: honour rate_cache_seconds — only fetch live if the cache is stale.
@@ -11,8 +11,11 @@ pub async fn current_rate(State(state): State<SharedState>) -> AppResult<Json<Va
             .signed_duration_since(
                 chrono::DateTime::parse_from_rfc3339(&cached.fetched_at)
                     .or_else(|_| {
-                        chrono::NaiveDateTime::parse_from_str(&cached.fetched_at, "%Y-%m-%d %H:%M:%S")
-                            .map(|ndt| ndt.and_utc().fixed_offset())
+                        chrono::NaiveDateTime::parse_from_str(
+                            &cached.fetched_at,
+                            "%Y-%m-%d %H:%M:%S",
+                        )
+                        .map(|ndt| ndt.and_utc().fixed_offset())
                     })
                     .unwrap_or_else(|_| chrono::DateTime::UNIX_EPOCH.fixed_offset()),
             )

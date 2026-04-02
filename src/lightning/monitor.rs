@@ -5,9 +5,9 @@
 //! `offer_id` and transitions the row to `lightning_received`, making it eligible
 //! for M-Pesa disbursement.
 
-use std::time::Duration;
 use crate::lightning::node::hex_encode;
 use crate::state::SharedState;
+use std::time::Duration;
 
 /// Spawn the monitor as a detached Tokio task.
 pub fn spawn(state: SharedState) {
@@ -104,9 +104,7 @@ async fn handle_event(state: &SharedState, event: ldk_node::Event) {
         }
 
         ldk_node::Event::ChannelClosed {
-            channel_id,
-            reason,
-            ..
+            channel_id, reason, ..
         } => {
             tracing::warn!(
                 channel_id = %channel_id,

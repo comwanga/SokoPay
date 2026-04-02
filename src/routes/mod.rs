@@ -5,9 +5,13 @@ mod oracle;
 mod payments;
 mod webhooks;
 
-use axum::{middleware as axum_middleware, routing::{get, post}, Router};
-use tower::limit::ConcurrencyLimitLayer;
 use crate::state::SharedState;
+use axum::{
+    middleware as axum_middleware,
+    routing::{get, post},
+    Router,
+};
+use tower::limit::ConcurrencyLimitLayer;
 
 pub fn router(state: SharedState) -> Router<SharedState> {
     // ── Protected API routes (require X-Api-Key when configured) ────────────

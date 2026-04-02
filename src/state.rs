@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use crate::config::Config;
 use crate::db::Database;
 use crate::lightning::LightningNode;
 use crate::mpesa::MpesaClient;
 use crate::oracle::RateOracle;
+use std::sync::Arc;
 
 pub struct AppState {
     pub db: Database,

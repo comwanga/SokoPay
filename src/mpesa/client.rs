@@ -1,10 +1,10 @@
-use reqwest::Client;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use super::types::*;
+use crate::config::Config;
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use reqwest::Client;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::config::Config;
-use super::types::*;
 
 struct TokenCache {
     token: String,
@@ -133,13 +133,13 @@ impl MpesaClient {
 /// (`-----BEGIN PUBLIC KEY-----`).  Extract from a Safaricom X.509 certificate with:
 ///   openssl x509 -pubkey -noout -in <cert.cer> > pubkey.pem
 fn encrypt_rsa_pkcs1v15(plaintext: &str, pem_path: &str) -> Result<String> {
-    use rsa::{pkcs8::DecodePublicKey, Pkcs1v15Encrypt, RsaPublicKey};
     use rand_core::OsRng;
+    use rsa::{pkcs8::DecodePublicKey, Pkcs1v15Encrypt, RsaPublicKey};
 
     let pem = std::fs::read_to_string(pem_path)
         .with_context(|| format!("Cannot read M-Pesa cert at '{}'", pem_path))?;
-    let public_key = RsaPublicKey::from_public_key_pem(&pem)
-        .context("Failed to parse M-Pesa public key PEM")?;
+    let public_key =
+        RsaPublicKey::from_public_key_pem(&pem).context("Failed to parse M-Pesa public key PEM")?;
     let encrypted = public_key
         .encrypt(&mut OsRng, Pkcs1v15Encrypt, plaintext.as_bytes())
         .context("RSA encryption failed")?;

@@ -1,10 +1,10 @@
+use crate::error::{AppError, AppResult};
+use crate::models::{CreateFarmer, Farmer};
+use crate::state::SharedState;
 use axum::{
     extract::{Path, State},
     Json,
 };
-use crate::error::{AppError, AppResult};
-use crate::models::{CreateFarmer, Farmer};
-use crate::state::SharedState;
 
 const NAME_MAX_LEN: usize = 200;
 const COOPERATIVE_MAX_LEN: usize = 200;
@@ -50,7 +50,11 @@ pub async fn create(
 
     let farmer = state
         .db
-        .create_farmer(CreateFarmer { name, phone, cooperative })
+        .create_farmer(CreateFarmer {
+            name,
+            phone,
+            cooperative,
+        })
         .await?;
     Ok(Json(farmer))
 }

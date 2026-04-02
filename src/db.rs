@@ -1,8 +1,8 @@
-use tokio_rusqlite::Connection;
-use rusqlite::{params, OptionalExtension};
-use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::models::*;
+use rusqlite::{params, OptionalExtension};
+use tokio_rusqlite::Connection;
+use uuid::Uuid;
 
 pub struct Database {
     conn: Connection,
@@ -46,8 +46,12 @@ impl Database {
             .await
             .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
 
-        self.apply_migration(1, "001_initial", include_str!("../migrations/001_initial.sql"))
-            .await?;
+        self.apply_migration(
+            1,
+            "001_initial",
+            include_str!("../migrations/001_initial.sql"),
+        )
+        .await?;
         self.apply_migration(
             2,
             "002_indexes_and_offer_id",
@@ -206,8 +210,15 @@ impl Database {
                         bolt12_offer, offer_id, crop_type, notes)
                        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"#,
                     params![
-                        id, farmer_id, amount_sats, amount_kes, btc_kes_rate,
-                        bolt12_offer, offer_id, crop_type, notes
+                        id,
+                        farmer_id,
+                        amount_sats,
+                        amount_kes,
+                        btc_kes_rate,
+                        bolt12_offer,
+                        offer_id,
+                        crop_type,
+                        notes
                     ],
                 )?;
                 conn.query_row(
@@ -251,7 +262,11 @@ impl Database {
                     let payment = map_payment_row(row)?;
                     let farmer_name: String = row.get(15)?;
                     let farmer_phone: String = row.get(16)?;
-                    Ok(PaymentWithFarmer { payment, farmer_name, farmer_phone })
+                    Ok(PaymentWithFarmer {
+                        payment,
+                        farmer_name,
+                        farmer_phone,
+                    })
                 })?;
                 rows.collect::<rusqlite::Result<Vec<_>>>()
             })
@@ -282,7 +297,11 @@ impl Database {
 
     /// Update by explicit ID — kept for manual/admin use.
     #[allow(dead_code)]
-    pub async fn update_payment_lightning(&self, id: String, payment_hash: String) -> AppResult<()> {
+    pub async fn update_payment_lightning(
+        &self,
+        id: String,
+        payment_hash: String,
+    ) -> AppResult<()> {
         self.conn
             .call(move |conn| {
                 conn.execute(
@@ -467,19 +486,19 @@ impl Database {
 
 fn map_payment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Payment> {
     Ok(Payment {
-        id:                     row.get(0)?,
-        farmer_id:              row.get(1)?,
-        amount_sats:            row.get(2)?,
-        amount_kes:             row.get(3)?,
-        btc_kes_rate:           row.get(4)?,
-        status:                 row.get(5)?,
-        bolt12_offer:           row.get(6)?,
-        offer_id:               row.get(7)?,
+        id: row.get(0)?,
+        farmer_id: row.get(1)?,
+        amount_sats: row.get(2)?,
+        amount_kes: row.get(3)?,
+        btc_kes_rate: row.get(4)?,
+        status: row.get(5)?,
+        bolt12_offer: row.get(6)?,
+        offer_id: row.get(7)?,
         lightning_payment_hash: row.get(8)?,
-        mpesa_ref:              row.get(9)?,
-        mpesa_request_id:       row.get(10)?,
-        crop_type:              row.get(11)?,
-        notes:      row.get(12)?,
+        mpesa_ref: row.get(9)?,
+        mpesa_request_id: row.get(10)?,
+        crop_type: row.get(11)?,
+        notes: row.get(12)?,
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
     })
@@ -513,21 +532,31 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_farmer() {
         let db = test_db().await;
-        let created = db.create_farmer(farmer_req("Alice", "0712345678")).await.unwrap();
+        let created = db
+            .create_farmer(farmer_req("Alice", "0712345678"))
+            .await
+            .unwrap();
         assert!(!created.id.is_empty(), "UUID should be set");
         assert_eq!(created.name, "Alice");
         assert_eq!(created.phone, "0712345678");
 
         let fetched = db.get_farmer(created.id.clone()).await.unwrap();
-        assert_eq!(fetched.id, created.id, "B-1: re-fetch must return the same UUID");
+        assert_eq!(
+            fetched.id, created.id,
+            "B-1: re-fetch must return the same UUID"
+        );
         assert_eq!(fetched.name, "Alice");
     }
 
     #[tokio::test]
     async fn test_list_farmers() {
         let db = test_db().await;
-        db.create_farmer(farmer_req("Bob", "0712345671")).await.unwrap();
-        db.create_farmer(farmer_req("Carol", "0712345672")).await.unwrap();
+        db.create_farmer(farmer_req("Bob", "0712345671"))
+            .await
+            .unwrap();
+        db.create_farmer(farmer_req("Carol", "0712345672"))
+            .await
+            .unwrap();
         let all = db.list_farmers().await.unwrap();
         assert_eq!(all.len(), 2);
     }
@@ -542,7 +571,10 @@ mod tests {
     // ── Payment state machine tests ───────────────────────────────────────────
 
     async fn seed_payment(db: &Database) -> (String, String) {
-        let f = db.create_farmer(farmer_req("Dan", "0712345679")).await.unwrap();
+        let f = db
+            .create_farmer(farmer_req("Dan", "0712345679"))
+            .await
+            .unwrap();
         let p = db
             .create_payment(
                 f.id.clone(),
@@ -572,10 +604,7 @@ mod tests {
         let db = test_db().await;
         let (_, pid) = seed_payment(&db).await;
         let advanced = db
-            .update_payment_lightning_by_offer_id(
-                "aabbccdd".into(),
-                "deadbeef".into(),
-            )
+            .update_payment_lightning_by_offer_id("aabbccdd".into(), "deadbeef".into())
             .await
             .unwrap();
         assert!(advanced, "Should advance the pending payment");
@@ -631,8 +660,12 @@ mod tests {
         db.update_payment_lightning_by_offer_id("aabbccdd".into(), "hash".into())
             .await
             .unwrap();
-        db.try_start_disburse(pid.clone(), "req-999".into()).await.unwrap();
-        db.complete_payment("req-999".into(), "MPESA_TXN_ABC".into()).await.unwrap();
+        db.try_start_disburse(pid.clone(), "req-999".into())
+            .await
+            .unwrap();
+        db.complete_payment("req-999".into(), "MPESA_TXN_ABC".into())
+            .await
+            .unwrap();
         let p = db.get_payment(pid).await.unwrap();
         assert_eq!(p.status, "completed");
         assert_eq!(p.mpesa_ref.as_deref(), Some("MPESA_TXN_ABC"));
@@ -645,7 +678,9 @@ mod tests {
         db.update_payment_lightning_by_offer_id("aabbccdd".into(), "hash".into())
             .await
             .unwrap();
-        db.try_start_disburse(pid.clone(), "req-fail".into()).await.unwrap();
+        db.try_start_disburse(pid.clone(), "req-fail".into())
+            .await
+            .unwrap();
         db.fail_payment("req-fail".into()).await.unwrap();
         let p = db.get_payment(pid).await.unwrap();
         assert_eq!(p.status, "failed");
@@ -654,11 +689,20 @@ mod tests {
     #[tokio::test]
     async fn test_pagination() {
         let db = test_db().await;
-        let f = db.create_farmer(farmer_req("Eve", "0712000001")).await.unwrap();
+        let f = db
+            .create_farmer(farmer_req("Eve", "0712000001"))
+            .await
+            .unwrap();
         for i in 0..5u64 {
             db.create_payment(
-                f.id.clone(), (i * 1000) as i64, i as f64 * 100.0, 10_000_000.0,
-                None, None, None, None,
+                f.id.clone(),
+                (i * 1000) as i64,
+                i as f64 * 100.0,
+                10_000_000.0,
+                None,
+                None,
+                None,
+                None,
             )
             .await
             .unwrap();

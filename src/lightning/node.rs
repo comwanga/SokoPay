@@ -1,8 +1,8 @@
-use ldk_node::{Builder, Node};
-use ldk_node::bitcoin::Network;
-use std::sync::Arc;
-use anyhow::Result;
 use crate::config::Config;
+use anyhow::Result;
+use ldk_node::bitcoin::Network;
+use ldk_node::{Builder, Node};
+use std::sync::Arc;
 
 pub struct LightningNode {
     inner: Arc<Node>,
@@ -37,7 +37,9 @@ impl LightningNode {
             .build()
             .map_err(|e| anyhow::anyhow!("LDK build error: {:?}", e))?;
 
-        Ok(Self { inner: Arc::new(node) })
+        Ok(Self {
+            inner: Arc::new(node),
+        })
     }
 
     pub fn start(&self) -> Result<()> {
@@ -86,7 +88,12 @@ impl LightningNode {
     pub fn find_offer_id_for_hash(&self, payment_hash_hex: &str) -> Option<String> {
         use ldk_node::payment::PaymentKind;
         for payment in self.inner.list_payments() {
-            if let PaymentKind::Bolt12Offer { hash: Some(hash), offer_id, .. } = payment.kind {
+            if let PaymentKind::Bolt12Offer {
+                hash: Some(hash),
+                offer_id,
+                ..
+            } = payment.kind
+            {
                 if hex_encode(hash.0) == payment_hash_hex {
                     return Some(hex_encode(offer_id.0));
                 }
@@ -106,5 +113,9 @@ impl LightningNode {
 
 /// Encode a byte slice as a lowercase hex string.
 pub fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
-    bytes.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
+    bytes
+        .as_ref()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }

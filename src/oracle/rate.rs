@@ -1,7 +1,7 @@
+use crate::config::Config;
+use anyhow::Result;
 use reqwest::Client;
 use serde::Deserialize;
-use anyhow::Result;
-use crate::config::Config;
 
 #[derive(Debug, Clone)]
 pub struct ExchangeRate {

@@ -64,24 +64,17 @@ impl Config {
             }
         }
 
-        let webhook_secret = std::env::var("WEBHOOK_SECRET")
-            .unwrap_or_else(|_| "dev-webhook-secret".into());
+        let webhook_secret =
+            std::env::var("WEBHOOK_SECRET").unwrap_or_else(|_| "dev-webhook-secret".into());
 
-        let base_url = std::env::var("BASE_URL")
-            .unwrap_or_else(|_| "http://localhost:3001".into());
+        let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3001".into());
 
         // Auto-build callback URLs that embed the webhook secret, unless overridden.
         let mpesa_result_url = std::env::var("MPESA_RESULT_URL").unwrap_or_else(|_| {
-            format!(
-                "{}/api/webhooks/mpesa/{}/result",
-                base_url, webhook_secret
-            )
+            format!("{}/api/webhooks/mpesa/{}/result", base_url, webhook_secret)
         });
         let mpesa_timeout_url = std::env::var("MPESA_TIMEOUT_URL").unwrap_or_else(|_| {
-            format!(
-                "{}/api/webhooks/mpesa/{}/timeout",
-                base_url, webhook_secret
-            )
+            format!("{}/api/webhooks/mpesa/{}/timeout", base_url, webhook_secret)
         });
 
         let allowed_origins: Vec<String> = std::env::var("ALLOWED_ORIGINS")
@@ -99,17 +92,14 @@ impl Config {
                 .context("Invalid PORT")?,
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://agri-pay.db".into()),
-            bitcoin_network: std::env::var("BITCOIN_NETWORK")
-                .unwrap_or_else(|_| "regtest".into()),
-            ldk_data_dir: std::env::var("LDK_DATA_DIR")
-                .unwrap_or_else(|_| "./ldk-data".into()),
+            bitcoin_network: std::env::var("BITCOIN_NETWORK").unwrap_or_else(|_| "regtest".into()),
+            ldk_data_dir: std::env::var("LDK_DATA_DIR").unwrap_or_else(|_| "./ldk-data".into()),
             esplora_url: std::env::var("ESPLORA_URL")
                 .unwrap_or_else(|_| "https://blockstream.info/testnet/api".into()),
             mpesa_env,
             mpesa_consumer_key,
             mpesa_consumer_secret,
-            mpesa_shortcode: std::env::var("MPESA_SHORTCODE")
-                .unwrap_or_else(|_| "600998".into()),
+            mpesa_shortcode: std::env::var("MPESA_SHORTCODE").unwrap_or_else(|_| "600998".into()),
             mpesa_initiator_name: std::env::var("MPESA_INITIATOR_NAME")
                 .unwrap_or_else(|_| "testapi".into()),
             mpesa_initiator_password,

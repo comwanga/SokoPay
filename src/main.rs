@@ -9,7 +9,10 @@ mod routes;
 mod state;
 
 use anyhow::Result;
-use axum::{Router, http::{HeaderValue, Method}};
+use axum::{
+    http::{HeaderValue, Method},
+    Router,
+};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -61,7 +64,13 @@ async fn main() -> Result<()> {
     let mpesa = MpesaClient::new(&config);
     let oracle = RateOracle::new(&config);
 
-    let state = Arc::new(AppState { db, lightning, mpesa, oracle, config: config.clone() });
+    let state = Arc::new(AppState {
+        db,
+        lightning,
+        mpesa,
+        oracle,
+        config: config.clone(),
+    });
 
     // ── Background: Lightning payment event monitor (B-4) ─────────────────────
     lightning::monitor::spawn(state.clone());

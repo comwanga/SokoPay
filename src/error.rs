@@ -47,7 +47,10 @@ impl IntoResponse for AppError {
             AppError::Oracle(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
             AppError::Internal(e) => {
                 tracing::error!("Internal error: {}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                )
             }
         };
         (status, Json(json!({ "error": message }))).into_response()

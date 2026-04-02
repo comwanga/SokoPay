@@ -1,13 +1,13 @@
+use crate::error::{AppError, AppResult};
+use crate::models::{CreatePayment, Payment, PaymentWithFarmer};
+use crate::oracle::RateOracle;
+use crate::state::SharedState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use crate::error::{AppError, AppResult};
-use crate::models::{CreatePayment, Payment, PaymentWithFarmer};
-use crate::oracle::RateOracle;
-use crate::state::SharedState;
 
 const NOTES_MAX_LEN: usize = 500;
 
@@ -19,14 +19,21 @@ pub struct Pagination {
     per_page: u32,
 }
 
-fn default_page() -> u32 { 1 }
-fn default_per_page() -> u32 { 50 }
+fn default_page() -> u32 {
+    1
+}
+fn default_per_page() -> u32 {
+    50
+}
 
 pub async fn list(
     State(state): State<SharedState>,
     Query(pagination): Query<Pagination>,
 ) -> AppResult<Json<Vec<PaymentWithFarmer>>> {
-    let payments = state.db.list_payments(pagination.page, pagination.per_page).await?;
+    let payments = state
+        .db
+        .list_payments(pagination.page, pagination.per_page)
+        .await?;
     Ok(Json(payments))
 }
 
@@ -65,11 +72,10 @@ pub async fn create(
         }
         Err(e) => {
             tracing::warn!("Failed to fetch live rate: {}. Falling back to cache.", e);
-            let cached = state
-                .db
-                .get_cached_rate()
-                .await
-                .ok_or_else(|| AppError::Oracle("No rate available — try again shortly".into()))?;
+            let cached =
+                state.db.get_cached_rate().await.ok_or_else(|| {
+                    AppError::Oracle("No rate available — try again shortly".into())
+                })?;
             crate::oracle::ExchangeRate {
                 btc_kes: cached.btc_kes,
                 btc_usd: cached.btc_usd,
@@ -79,7 +85,9 @@ pub async fn create(
 
     let amount_sats = RateOracle::kes_to_sats(req.amount_kes, rate.btc_kes);
     if amount_sats < 1000 {
-        return Err(AppError::BadRequest("Amount too small (min ~1000 sats)".into()));
+        return Err(AppError::BadRequest(
+            "Amount too small (min ~1000 sats)".into(),
+        ));
     }
 
     let description = format!(
@@ -157,10 +165,7 @@ pub async fn disburse(
 
     // R-5: Atomically transition status to 'disbursing'. If another request already
     // did this (race / retry), rows_changed == 0 and we return 409 Conflict.
-    let transitioned = state
-        .db
-        .try_start_disburse(id, request_id.clone())
-        .await?;
+    let transitioned = state.db.try_start_disburse(id, request_id.clone()).await?;
 
     if !transitioned {
         return Err(AppError::BadRequest(
