@@ -1,0 +1,53 @@
+[package]
+name = "agri-pay"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "agri-pay"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = { version = "0.4", features = ["limit"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+# rusqlite 0.28 exactly matches ldk-node 0.4's internal rusqlite dep so Cargo
+# deduplicates to a single libsqlite3-sys instance (no links conflict).
+# "bundled" compiles SQLite from source — no system sqlite3 required (good on Windows).
+rusqlite = { version = "0.28", features = ["bundled"] }
+tokio-rusqlite = "0.3"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Bitcoin / Lightning
+ldk-node = "0.4"
+
+# RSA encryption for M-Pesa production SecurityCredential
+rsa = "0.9"
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Utils
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+anyhow = "1"
+thiserror = "1"
+dotenvy = "0.15"
+base64 = "0.22"
+tokio-stream = "0.1"
+
+[dev-dependencies]
+axum-test = "14"
+tokio = { version = "1", features = ["full", "test-util"] }

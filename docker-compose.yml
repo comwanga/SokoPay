@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - RUST_LOG=agri_pay=info,tower_http=info
+      - LOG_FORMAT=json
+      - DATABASE_URL=sqlite:///data/agri-pay.db
+      - BITCOIN_NETWORK=${BITCOIN_NETWORK:-regtest}
+      - LDK_DATA_DIR=/data/ldk
+      - MPESA_ENV=${MPESA_ENV:-sandbox}
+      - MPESA_CONSUMER_KEY=${MPESA_CONSUMER_KEY}
+      - MPESA_CONSUMER_SECRET=${MPESA_CONSUMER_SECRET}
+      - MPESA_SHORTCODE=${MPESA_SHORTCODE:-600998}
+      - MPESA_INITIATOR_NAME=${MPESA_INITIATOR_NAME:-testapi}
+      - MPESA_INITIATOR_PASSWORD=${MPESA_INITIATOR_PASSWORD}
+      - MPESA_CERT_PATH=${MPESA_CERT_PATH:-}
+      - BASE_URL=${BASE_URL:-http://localhost:3001}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-change-me-in-production}
+      - API_KEY=${API_KEY:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+      - RATE_CACHE_SECONDS=${RATE_CACHE_SECONDS:-60}
+    volumes:
+      - agri_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    environment:
+      - VITE_API_URL=http://localhost:3001
+      - VITE_API_KEY=${API_KEY:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  agri_data:

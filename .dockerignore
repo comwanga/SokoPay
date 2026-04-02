@@ -1,0 +1,30 @@
+# Secrets — never bake into an image
+.env
+*.env*
+
+# Rust build artefacts
+target/
+
+# Node / frontend build artefacts
+frontend/node_modules/
+frontend/.vite/
+frontend/dist/
+
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+
+# Lightning node state (persisted via Docker volume, not baked in)
+ldk-data/
+
+# Pre-built static assets (rebuilt inside Docker)
+static/
+
+# VCS
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
