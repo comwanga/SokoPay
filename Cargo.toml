@@ -2,6 +2,7 @@
 name = "agri-pay"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
 
 [[bin]]
 name = "agri-pay"
@@ -21,17 +22,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Database
-# rusqlite 0.28 exactly matches ldk-node 0.4's internal rusqlite dep so Cargo
+# rusqlite 0.31 matches ldk-node 0.7's internal rusqlite dep so Cargo
 # deduplicates to a single libsqlite3-sys instance (no links conflict).
 # "bundled" compiles SQLite from source — no system sqlite3 required (good on Windows).
-rusqlite = { version = "0.28", features = ["bundled"] }
-tokio-rusqlite = "0.3"
+rusqlite = { version = "0.31", features = ["bundled"] }
+tokio-rusqlite = "0.5"
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
 # Bitcoin / Lightning
-ldk-node = "0.4"
+ldk-node = "0.7"
 
 # RSA encryption for M-Pesa production SecurityCredential
 rsa = "0.9"

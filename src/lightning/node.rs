@@ -78,7 +78,7 @@ impl LightningNode {
 
     /// Acknowledge the most recently returned event so LDK advances its queue.
     pub fn event_handled(&self) {
-        self.inner.event_handled();
+        let _ = self.inner.event_handled();
     }
 
     /// Given a payment hash (hex string), scan `list_payments()` for a BOLT12 offer payment

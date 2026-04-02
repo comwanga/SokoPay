@@ -13,7 +13,7 @@ impl Database {
         let file_path = path.strip_prefix("sqlite://").unwrap_or(path);
         let conn = Connection::open(file_path)
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         // Enable WAL mode for better read/write concurrency on the single connection.
         conn.call(|c| {
@@ -21,7 +21,7 @@ impl Database {
             Ok(())
         })
         .await
-        .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+        .map_err(|e| AppError::Database(e.to_string()))?;
 
         Ok(Self { conn })
     }
@@ -44,7 +44,7 @@ impl Database {
                 Ok(())
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         self.apply_migration(
             1,
@@ -79,7 +79,7 @@ impl Database {
                 Ok(count > 0)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         if already_applied {
             return Ok(());
@@ -95,7 +95,7 @@ impl Database {
                 Ok(())
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         tracing::info!("Applied migration {}: {}", version, name);
         Ok(())
@@ -116,7 +116,7 @@ impl Database {
                     "INSERT INTO farmers (id, name, phone, cooperative) VALUES (?1, ?2, ?3, ?4)",
                     params![id_clone, req.name, req.phone, req.cooperative],
                 )?;
-                conn.query_row(
+                Ok(conn.query_row(
                     "SELECT id, name, phone, cooperative, created_at FROM farmers WHERE id = ?1",
                     params![id_clone],
                     |row| {
@@ -128,10 +128,10 @@ impl Database {
                             created_at: row.get(4)?,
                         })
                     },
-                )
+                )?)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(farmer)
     }
 
@@ -152,34 +152,35 @@ impl Database {
                         created_at: row.get(4)?,
                     })
                 })?;
-                rows.collect::<rusqlite::Result<Vec<_>>>()
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(farmers)
     }
 
     pub async fn get_farmer(&self, id: String) -> AppResult<Farmer> {
-        let result = self
+        let result: Option<Farmer> = self
             .conn
             .call(move |conn| {
-                conn.query_row(
-                    "SELECT id, name, phone, cooperative, created_at FROM farmers WHERE id = ?1",
-                    params![id],
-                    |row| {
-                        Ok(Farmer {
-                            id: row.get(0)?,
-                            name: row.get(1)?,
-                            phone: row.get(2)?,
-                            cooperative: row.get(3)?,
-                            created_at: row.get(4)?,
-                        })
-                    },
-                )
-                .optional()
+                Ok(conn
+                    .query_row(
+                        "SELECT id, name, phone, cooperative, created_at FROM farmers WHERE id = ?1",
+                        params![id],
+                        |row| {
+                            Ok(Farmer {
+                                id: row.get(0)?,
+                                name: row.get(1)?,
+                                phone: row.get(2)?,
+                                cooperative: row.get(3)?,
+                                created_at: row.get(4)?,
+                            })
+                        },
+                    )
+                    .optional()?)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         result.ok_or_else(|| AppError::NotFound("Farmer not found".into()))
     }
@@ -221,17 +222,17 @@ impl Database {
                         notes
                     ],
                 )?;
-                conn.query_row(
+                Ok(conn.query_row(
                     "SELECT id, farmer_id, amount_sats, amount_kes, btc_kes_rate, status,
                             bolt12_offer, offer_id, lightning_payment_hash, mpesa_ref,
                             mpesa_request_id, crop_type, notes, created_at, updated_at
                      FROM payments WHERE rowid = last_insert_rowid()",
                     [],
                     map_payment_row,
-                )
+                )?)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(payment)
     }
 
@@ -268,29 +269,30 @@ impl Database {
                         farmer_phone,
                     })
                 })?;
-                rows.collect::<rusqlite::Result<Vec<_>>>()
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(payments)
     }
 
     pub async fn get_payment(&self, id: String) -> AppResult<Payment> {
-        let result = self
+        let result: Option<Payment> = self
             .conn
             .call(move |conn| {
-                conn.query_row(
-                    "SELECT id, farmer_id, amount_sats, amount_kes, btc_kes_rate, status,
+                Ok(conn
+                    .query_row(
+                        "SELECT id, farmer_id, amount_sats, amount_kes, btc_kes_rate, status,
                             bolt12_offer, offer_id, lightning_payment_hash, mpesa_ref,
                             mpesa_request_id, crop_type, notes, created_at, updated_at
                      FROM payments WHERE id = ?1",
-                    params![id],
-                    map_payment_row,
-                )
-                .optional()
+                        params![id],
+                        map_payment_row,
+                    )
+                    .optional()?)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         result.ok_or_else(|| AppError::NotFound("Payment not found".into()))
     }
@@ -312,7 +314,7 @@ impl Database {
                 Ok(())
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))
+            .map_err(|e| AppError::Database(e.to_string()))
     }
 
     /// Find a pending payment by its BOLT12 offer_id and advance it to `lightning_received`.
@@ -334,7 +336,7 @@ impl Database {
                 Ok(n)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(rows_changed > 0)
     }
 
@@ -360,7 +362,7 @@ impl Database {
                 Ok(n)
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
         Ok(rows_changed > 0)
     }
 
@@ -379,7 +381,7 @@ impl Database {
                 Ok(())
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))
+            .map_err(|e| AppError::Database(e.to_string()))
     }
 
     pub async fn fail_payment(&self, mpesa_request_id: String) -> AppResult<()> {
@@ -392,7 +394,7 @@ impl Database {
                 Ok(())
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))
+            .map_err(|e| AppError::Database(e.to_string()))
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -402,19 +404,20 @@ impl Database {
     pub async fn get_cached_rate(&self) -> Option<RateCache> {
         self.conn
             .call(|conn| {
-                conn.query_row(
-                    "SELECT id, btc_kes, btc_usd, fetched_at FROM rate_cache WHERE id = 1",
-                    [],
-                    |row| {
-                        Ok(RateCache {
-                            id: row.get(0)?,
-                            btc_kes: row.get(1)?,
-                            btc_usd: row.get(2)?,
-                            fetched_at: row.get(3)?,
-                        })
-                    },
-                )
-                .optional()
+                Ok(conn
+                    .query_row(
+                        "SELECT id, btc_kes, btc_usd, fetched_at FROM rate_cache WHERE id = 1",
+                        [],
+                        |row| {
+                            Ok(RateCache {
+                                id: row.get(0)?,
+                                btc_kes: row.get(1)?,
+                                btc_usd: row.get(2)?,
+                                fetched_at: row.get(3)?,
+                            })
+                        },
+                    )
+                    .optional()?)
             })
             .await
             .ok()
@@ -436,7 +439,7 @@ impl Database {
                 Ok(())
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))
+            .map_err(|e| AppError::Database(e.to_string()))
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -474,7 +477,7 @@ impl Database {
                 })
             })
             .await
-            .map_err(|e: rusqlite::Error| AppError::Database(e.to_string()))?;
+            .map_err(|e| AppError::Database(e.to_string()))?;
 
         Ok(stats)
     }
