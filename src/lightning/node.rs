@@ -101,7 +101,6 @@ impl LightningNode {
         }
         None
     }
-
 }
 
 /// Encode a byte slice as a lowercase hex string.
