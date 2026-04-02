@@ -102,13 +102,6 @@ impl LightningNode {
         None
     }
 
-    pub fn status(&self) -> serde_json::Value {
-        serde_json::json!({
-            "node_id": self.node_id(),
-            "num_channels": self.inner.list_channels().len(),
-            "num_payments": self.inner.list_payments().len(),
-        })
-    }
 }
 
 /// Encode a byte slice as a lowercase hex string.

@@ -150,8 +150,8 @@ pub fn normalize_phone(phone: &str) -> Result<String> {
     let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
     let normalized = if digits.starts_with("254") {
         digits
-    } else if digits.starts_with("0") {
-        format!("254{}", &digits[1..])
+    } else if let Some(stripped) = digits.strip_prefix('0') {
+        format!("254{}", stripped)
     } else if digits.starts_with("7") || digits.starts_with("1") {
         format!("254{}", digits)
     } else {

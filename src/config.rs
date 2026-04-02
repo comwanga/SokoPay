@@ -19,7 +19,6 @@ pub struct Config {
     /// Extract from the Safaricom certificate with:
     ///   openssl x509 -pubkey -noout -in ProductionCertificate.cer > mpesa_prod_pubkey.pem
     pub mpesa_cert_path: String,
-    pub base_url: String,
     pub mpesa_result_url: String,
     pub mpesa_timeout_url: String,
     // Oracle
@@ -104,7 +103,6 @@ impl Config {
                 .unwrap_or_else(|_| "testapi".into()),
             mpesa_initiator_password,
             mpesa_cert_path,
-            base_url,
             mpesa_result_url,
             mpesa_timeout_url,
             coingecko_api_url: std::env::var("COINGECKO_API_URL")
