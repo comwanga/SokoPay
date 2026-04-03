@@ -155,16 +155,16 @@ function Bolt12Modal({ payment, onClose }: Bolt12ModalProps) {
             <>
               <div className="flex flex-col items-center">
                 <p className="text-xs text-gray-500 mb-3">Scan to pay via Lightning</p>
-                <div className="bg-white p-3 rounded-xl shadow-lg">
+                <div className="bg-white p-4 rounded-xl shadow-lg">
                   <QRCodeSVG
-                    value={payment.bolt12_offer}
-                    size={200}
+                    value={`LIGHTNING:${payment.bolt12_offer.toUpperCase()}`}
+                    size={240}
                     level="M"
                     includeMargin={false}
                   />
                 </div>
                 <p className="text-[11px] text-gray-600 mt-2 text-center">
-                  Requires a BOLT12-compatible Lightning wallet
+                  Compatible with Phoenix, Mutiny &amp; other BOLT12 wallets
                 </p>
               </div>
 
