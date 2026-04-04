@@ -11,23 +11,23 @@ const STATUS_CONFIG: Record<
   PaymentStatus,
   { label: string; icon: React.ReactNode; className: string }
 > = {
-  pending: {
-    label: 'Pending',
+  created: {
+    label: 'Created',
     icon: <Clock className="w-3 h-3" />,
     className: 'bg-gray-700/60 text-gray-300 border-gray-600',
   },
-  lightning_received: {
-    label: 'Lightning Received',
+  invoice_created: {
+    label: 'Invoice Created',
     icon: <Zap className="w-3 h-3" />,
     className: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
   },
-  disbursing: {
-    label: 'Disbursing',
+  bitcoin_received: {
+    label: 'Bitcoin Received',
     icon: <Loader2 className="w-3 h-3 animate-spin" />,
     className: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
   },
-  completed: {
-    label: 'Completed',
+  credited_to_farmer: {
+    label: 'Credited',
     icon: <CheckCircle2 className="w-3 h-3" />,
     className: 'bg-mpesa/20 text-green-300 border-green-500/40',
   },

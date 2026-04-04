@@ -62,12 +62,12 @@ function RateDisplay() {
       <div className="flex items-center gap-1.5">
         <TrendingUp className="w-3.5 h-3.5 text-bitcoin shrink-0" />
         <span className="text-xs font-semibold text-bitcoin">
-          {rate.btc_kes.toLocaleString('en-KE', { maximumFractionDigits: 0 })} KES
+          {parseFloat(rate.btc_kes).toLocaleString('en-KE', { maximumFractionDigits: 0 })} KES
         </span>
       </div>
       <div className="flex items-center gap-1.5 pl-5">
         <span className="text-xs text-gray-500">
-          ${rate.btc_usd.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD
+          ${parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })} USD
         </span>
         <span
           className={clsx(

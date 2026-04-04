@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart,
@@ -19,9 +20,9 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
-import { getStats, getPayments, getRate } from '../api/client.ts'
+import { getFarmers, getPayments, getRate } from '../api/client.ts'
 import StatusBadge from './StatusBadge.tsx'
-import type { DashboardStats, PaymentWithFarmer, ExchangeRate } from '../types'
+import type { PaymentWithFarmer, ExchangeRate } from '../types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,32 +90,29 @@ function RateWidget({ rate, loading }: { rate?: ExchangeRate; loading: boolean }
           <TrendingUp className="w-4 h-4 text-bitcoin" />
           <p className="text-sm font-semibold text-gray-300">Bitcoin Exchange Rate</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border ${
-              rate.live
-                ? 'bg-mpesa/20 text-green-300 border-green-600/30'
-                : 'bg-gray-700 text-gray-400 border-gray-600'
-            }`}
-          >
-            {rate.live ? 'LIVE' : 'CACHED'}
-          </span>
-          <span className="text-[11px] text-gray-600">{rate.source}</span>
-        </div>
+        <span
+          className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border ${
+            rate.live
+              ? 'bg-mpesa/20 text-green-300 border-green-600/30'
+              : 'bg-gray-700 text-gray-400 border-gray-600'
+          }`}
+        >
+          {rate.live ? 'LIVE' : 'CACHED'}
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
           <p className="text-xs text-gray-500 mb-1">BTC / KES</p>
           <p className="text-2xl font-bold text-bitcoin">
-            {rate.btc_kes.toLocaleString('en-KE', { maximumFractionDigits: 0 })}
+            {parseFloat(rate.btc_kes).toLocaleString('en-KE', { maximumFractionDigits: 0 })}
           </p>
           <p className="text-xs text-gray-600 mt-0.5">Kenyan Shilling</p>
         </div>
         <div>
           <p className="text-xs text-gray-500 mb-1">BTC / USD</p>
           <p className="text-2xl font-bold text-gray-200">
-            {rate.btc_usd.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            {parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}
           </p>
           <p className="text-xs text-gray-600 mt-0.5">US Dollar</p>
         </div>
@@ -132,10 +130,10 @@ function RateWidget({ rate, loading }: { rate?: ExchangeRate; loading: boolean }
 // ─── Status Chart ─────────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: '#6b7280',
-  lightning_received: '#f59e0b',
-  disbursing: '#3b82f6',
-  completed: '#00a651',
+  created: '#6b7280',
+  invoice_created: '#f59e0b',
+  bitcoin_received: '#3b82f6',
+  credited_to_farmer: '#00a651',
   failed: '#ef4444',
 }
 
@@ -146,7 +144,7 @@ function StatusChart({ payments }: { payments: PaymentWithFarmer[] }) {
   }, {})
 
   const data = Object.entries(counts).map(([status, count]) => ({
-    status: status.replace('_', ' '),
+    status: status.replace(/_/g, ' '),
     rawStatus: status,
     count,
   }))
@@ -241,7 +239,7 @@ function RecentPayments({ payments, loading }: { payments: PaymentWithFarmer[]; 
                     <p className="text-[11px] text-gray-500">{p.farmer_phone}</p>
                   </td>
                   <td className="font-mono text-gray-200">
-                    {p.amount_kes.toLocaleString('en-KE')}
+                    {parseFloat(p.amount_kes).toLocaleString('en-KE')}
                   </td>
                   <td className="font-mono text-amber-400">
                     {p.amount_sats.toLocaleString('en-US')}
@@ -266,19 +264,20 @@ function RecentPayments({ payments, loading }: { payments: PaymentWithFarmer[]; 
 
 export default function Dashboard() {
   const {
-    data: stats,
-    isLoading: statsLoading,
-    isError: statsError,
-    refetch: refetchStats,
-  } = useQuery<DashboardStats>({
-    queryKey: ['stats'],
-    queryFn: getStats,
+    data: farmers = [],
+    isLoading: farmersLoading,
+    isError: farmersError,
+    refetch: refetchFarmers,
+  } = useQuery({
+    queryKey: ['farmers'],
+    queryFn: getFarmers,
     refetchInterval: 30_000,
   })
 
   const {
     data: payments = [],
     isLoading: paymentsLoading,
+    refetch: refetchPayments,
   } = useQuery<PaymentWithFarmer[]>({
     queryKey: ['payments'],
     queryFn: () => getPayments(),
@@ -291,6 +290,24 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   })
 
+  const stats = useMemo(() => {
+    const credited = payments.filter((p) => p.status === 'credited_to_farmer')
+    return {
+      total_farmers: farmers.length,
+      total_payments: payments.length,
+      total_paid_kes: credited.reduce((sum, p) => sum + parseFloat(p.amount_kes), 0),
+      total_paid_sats: credited.reduce((sum, p) => sum + p.amount_sats, 0),
+      pending_invoices: payments.filter((p) => p.status === 'invoice_created').length,
+    }
+  }, [payments, farmers])
+
+  const statsLoading = farmersLoading || paymentsLoading
+
+  function refetchAll() {
+    refetchFarmers()
+    refetchPayments()
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -298,11 +315,11 @@ export default function Dashboard() {
         <div>
           <h1 className="text-xl font-bold text-gray-100">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Agricultural Lightning ↔ M-Pesa payments overview
+            Agricultural Bitcoin ↔ M-Pesa payments overview
           </p>
         </div>
         <button
-          onClick={() => refetchStats()}
+          onClick={refetchAll}
           className="btn-secondary text-xs px-3 py-1.5"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -311,10 +328,10 @@ export default function Dashboard() {
       </div>
 
       {/* Error state */}
-      {statsError && (
+      {farmersError && (
         <div className="mb-6 flex items-center gap-3 bg-red-900/20 border border-red-700/30 rounded-xl px-4 py-3 text-sm text-red-400">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>Failed to load dashboard stats. Is the backend running on port 3001?</span>
+          <span>Failed to load dashboard data. Is the backend running on port 3001?</span>
         </div>
       )}
 
@@ -322,34 +339,34 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           label="Total Farmers"
-          value={stats?.total_farmers ?? '—'}
+          value={statsLoading ? '—' : stats.total_farmers}
           icon={<Users className="w-4 h-4 text-blue-400" />}
           iconColor="bg-blue-500/10"
           loading={statsLoading}
         />
         <StatCard
           label="Total Payments"
-          value={stats?.total_payments ?? '—'}
+          value={statsLoading ? '—' : stats.total_payments}
           icon={<Zap className="w-4 h-4 text-amber-400" />}
           iconColor="bg-amber-500/10"
           loading={statsLoading}
         />
         <StatCard
           label="Total Paid (KES)"
-          value={stats ? fmtKes(stats.total_paid_kes) : '—'}
+          value={statsLoading ? '—' : fmtKes(stats.total_paid_kes)}
           icon={<DollarSign className="w-4 h-4 text-mpesa" />}
           iconColor="bg-green-500/10"
-          subtitle={stats ? fmtSats(stats.total_paid_sats) : undefined}
+          subtitle={statsLoading ? undefined : fmtSats(stats.total_paid_sats)}
           loading={statsLoading}
         />
         <StatCard
-          label="Pending Disbursements"
-          value={stats?.pending_disbursements ?? '—'}
+          label="Awaiting Payment"
+          value={statsLoading ? '—' : stats.pending_invoices}
           icon={<Clock className="w-4 h-4 text-orange-400" />}
           iconColor="bg-orange-500/10"
           subtitle={
-            stats && stats.pending_disbursements > 0
-              ? 'Awaiting M-Pesa transfer'
+            !statsLoading && stats.pending_invoices > 0
+              ? 'Awaiting BTC payment'
               : undefined
           }
           loading={statsLoading}
