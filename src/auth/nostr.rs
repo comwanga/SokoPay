@@ -38,7 +38,9 @@ pub async fn nostr_login(
     // 2. Timestamp within 60 seconds
     let now = chrono::Utc::now().timestamp();
     if (now - event.created_at).abs() > 60 {
-        return Err(AppError::Unauthorized("Event timestamp out of range".into()));
+        return Err(AppError::Unauthorized(
+            "Event timestamp out of range".into(),
+        ));
     }
 
     // 3. u tag must reference this endpoint
@@ -136,12 +138,12 @@ fn verify_schnorr(pubkey_hex: &str, event_id_hex: &str, sig_hex: &str) -> AppRes
     use k256::schnorr::{Signature, VerifyingKey};
     use signature::Verifier;
 
-    let pubkey_bytes = hex::decode(pubkey_hex)
-        .map_err(|_| AppError::BadRequest("Invalid pubkey hex".into()))?;
+    let pubkey_bytes =
+        hex::decode(pubkey_hex).map_err(|_| AppError::BadRequest("Invalid pubkey hex".into()))?;
     let event_id_bytes = hex::decode(event_id_hex)
         .map_err(|_| AppError::BadRequest("Invalid event id hex".into()))?;
-    let sig_bytes = hex::decode(sig_hex)
-        .map_err(|_| AppError::BadRequest("Invalid signature hex".into()))?;
+    let sig_bytes =
+        hex::decode(sig_hex).map_err(|_| AppError::BadRequest("Invalid signature hex".into()))?;
 
     let vk = VerifyingKey::from_bytes(&pubkey_bytes)
         .map_err(|_| AppError::Unauthorized("Invalid Nostr public key".into()))?;
