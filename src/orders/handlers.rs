@@ -490,6 +490,74 @@ pub async fn update_order_status(
     Ok(Json(order.into()))
 }
 
+/// DELETE /api/orders/:id  (cancel pending_payment orders only)
+pub async fn cancel_order(
+    State(state): State<SharedState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    let user_id = claims
+        .farmer_id
+        .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
+
+    #[derive(FromRow)]
+    struct OrderMeta {
+        product_id: Uuid,
+        seller_id: Uuid,
+        buyer_id: Uuid,
+        quantity: Decimal,
+        status: String,
+    }
+    let meta: Option<OrderMeta> = sqlx::query_as(
+        "SELECT product_id, seller_id, buyer_id, quantity, status FROM orders WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let meta = meta.ok_or_else(|| AppError::NotFound(format!("Order {} not found", id)))?;
+
+    if meta.seller_id != user_id && meta.buyer_id != user_id && claims.role != Role::Admin {
+        return Err(AppError::Forbidden("Access denied".into()));
+    }
+
+    if meta.status != "pending_payment" {
+        return Err(AppError::BadRequest(format!(
+            "Cannot cancel an order with status '{}'",
+            meta.status
+        )));
+    }
+
+    // Restore product quantity and cancel order atomically
+    let mut tx = state.db.begin().await?;
+
+    sqlx::query("UPDATE orders SET status = 'cancelled' WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("UPDATE products SET quantity_avail = quantity_avail + $2 WHERE id = $1")
+        .bind(meta.product_id)
+        .bind(meta.quantity)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    events::record_order_event(
+        &state.db,
+        id,
+        Some(user_id),
+        "cancelled",
+        None,
+        serde_json::json!({}),
+    )
+    .await
+    .ok();
+
+    Ok(Json(serde_json::json!({ "cancelled": true })))
+}
+
 // ── Unit tests (state machine) ────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
@@ -558,72 +626,4 @@ mod tests {
         // Can't go backwards from delivered to processing
         assert!(!can_transition("delivered", "processing", true));
     }
-}
-
-/// DELETE /api/orders/:id  (cancel pending_payment orders only)
-pub async fn cancel_order(
-    State(state): State<SharedState>,
-    claims: Claims,
-    Path(id): Path<Uuid>,
-) -> AppResult<Json<serde_json::Value>> {
-    let user_id = claims
-        .farmer_id
-        .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
-
-    #[derive(FromRow)]
-    struct OrderMeta {
-        product_id: Uuid,
-        seller_id: Uuid,
-        buyer_id: Uuid,
-        quantity: Decimal,
-        status: String,
-    }
-    let meta: Option<OrderMeta> = sqlx::query_as(
-        "SELECT product_id, seller_id, buyer_id, quantity, status FROM orders WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    let meta = meta.ok_or_else(|| AppError::NotFound(format!("Order {} not found", id)))?;
-
-    if meta.seller_id != user_id && meta.buyer_id != user_id && claims.role != Role::Admin {
-        return Err(AppError::Forbidden("Access denied".into()));
-    }
-
-    if meta.status != "pending_payment" {
-        return Err(AppError::BadRequest(format!(
-            "Cannot cancel an order with status '{}'",
-            meta.status
-        )));
-    }
-
-    // Restore product quantity and cancel order atomically
-    let mut tx = state.db.begin().await?;
-
-    sqlx::query("UPDATE orders SET status = 'cancelled' WHERE id = $1")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("UPDATE products SET quantity_avail = quantity_avail + $2 WHERE id = $1")
-        .bind(meta.product_id)
-        .bind(meta.quantity)
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-
-    events::record_order_event(
-        &state.db,
-        id,
-        Some(user_id),
-        "cancelled",
-        None,
-        serde_json::json!({}),
-    )
-    .await
-    .ok();
-
-    Ok(Json(serde_json::json!({ "cancelled": true })))
 }

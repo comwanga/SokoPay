@@ -410,7 +410,7 @@ mod tests {
 
         let preimage_bytes = [42u8; 32];
         let preimage_hex = hex::encode(preimage_bytes);
-        let payment_hash = hex::encode(Sha256::digest(&preimage_bytes));
+        let payment_hash = hex::encode(Sha256::digest(preimage_bytes));
 
         sqlx::query(
             "UPDATE payments

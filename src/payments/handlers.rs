@@ -97,57 +97,6 @@ async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-// ── Unit tests (preimage validation) ─────────────────────────────────────────
-#[cfg(test)]
-mod tests {
-    use sha2::{Digest, Sha256};
-
-    #[test]
-    fn test_valid_preimage_produces_64_char_hash() {
-        let preimage_bytes = [0u8; 32];
-        let preimage_hex = hex::encode(preimage_bytes);
-        let decoded = hex::decode(&preimage_hex).unwrap();
-        assert_eq!(decoded.len(), 32);
-        let hash = hex::encode(Sha256::digest(&decoded));
-        assert_eq!(hash.len(), 64, "sha256 hex output must be 64 chars");
-    }
-
-    #[test]
-    fn test_preimage_not_hex_rejected() {
-        let result = hex::decode("not-valid-hex!!!");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_preimage_31_bytes_rejected() {
-        let short_hex = hex::encode([0u8; 31]); // 62 hex chars
-        let bytes = hex::decode(&short_hex).unwrap();
-        assert_ne!(bytes.len(), 32, "31-byte preimage must fail length check");
-    }
-
-    #[test]
-    fn test_preimage_33_bytes_rejected() {
-        let long_hex = hex::encode([0u8; 33]); // 66 hex chars
-        let bytes = hex::decode(&long_hex).unwrap();
-        assert_ne!(bytes.len(), 32, "33-byte preimage must fail length check");
-    }
-
-    #[test]
-    fn test_same_preimage_produces_same_hash() {
-        let preimage = [42u8; 32];
-        let h1 = hex::encode(Sha256::digest(&preimage));
-        let h2 = hex::encode(Sha256::digest(&preimage));
-        assert_eq!(h1, h2, "sha256 must be deterministic");
-    }
-
-    #[test]
-    fn test_different_preimages_produce_different_hashes() {
-        let h1 = hex::encode(Sha256::digest(&[1u8; 32]));
-        let h2 = hex::encode(Sha256::digest(&[2u8; 32]));
-        assert_ne!(h1, h2);
-    }
-}
-
 /// POST /api/payments/invoice
 /// Fetches the seller's Lightning Address, requests a bolt11 via LNURL-pay,
 /// and stores a pending payment record.
@@ -412,4 +361,55 @@ pub async fn get_payment_for_order(
         settled_at: row.settled_at,
         created_at: row.created_at,
     }))
+}
+
+// ── Unit tests (preimage validation) ─────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn test_valid_preimage_produces_64_char_hash() {
+        let preimage_bytes = [0u8; 32];
+        let preimage_hex = hex::encode(preimage_bytes);
+        let decoded = hex::decode(&preimage_hex).unwrap();
+        assert_eq!(decoded.len(), 32);
+        let hash = hex::encode(Sha256::digest(decoded));
+        assert_eq!(hash.len(), 64, "sha256 hex output must be 64 chars");
+    }
+
+    #[test]
+    fn test_preimage_not_hex_rejected() {
+        let result = hex::decode("not-valid-hex!!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_preimage_31_bytes_rejected() {
+        let short_hex = hex::encode([0u8; 31]); // 62 hex chars
+        let bytes = hex::decode(&short_hex).unwrap();
+        assert_ne!(bytes.len(), 32, "31-byte preimage must fail length check");
+    }
+
+    #[test]
+    fn test_preimage_33_bytes_rejected() {
+        let long_hex = hex::encode([0u8; 33]); // 66 hex chars
+        let bytes = hex::decode(&long_hex).unwrap();
+        assert_ne!(bytes.len(), 32, "33-byte preimage must fail length check");
+    }
+
+    #[test]
+    fn test_same_preimage_produces_same_hash() {
+        let preimage = [42u8; 32];
+        let h1 = hex::encode(Sha256::digest(preimage));
+        let h2 = hex::encode(Sha256::digest(preimage));
+        assert_eq!(h1, h2, "sha256 must be deterministic");
+    }
+
+    #[test]
+    fn test_different_preimages_produce_different_hashes() {
+        let h1 = hex::encode(Sha256::digest([1u8; 32]));
+        let h2 = hex::encode(Sha256::digest([2u8; 32]));
+        assert_ne!(h1, h2);
+    }
 }
