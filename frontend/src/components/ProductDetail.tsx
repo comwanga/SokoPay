@@ -8,7 +8,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react'
 import {
   getProduct, createOrder, createInvoice, confirmPayment,
-  payWithWebLN, hasWebLN, formatKes, formatSats,
+  updateOrderStatus, payWithWebLN, hasWebLN, formatKes, formatSats,
 } from '../api/client.ts'
 import { useAuth } from '../context/auth.tsx'
 import clsx from 'clsx'
@@ -31,7 +31,7 @@ export default function ProductDetail() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null)
 
   // Invoice state
-  const [_orderId, setOrderId] = useState<string | null>(null)
+  const [orderId, setOrderId] = useState<string | null>(null)
   const [invoice, setInvoice] = useState<{ payment_id: string; bolt11: string; amount_sats: number } | null>(null)
   const [payError, setPayError] = useState<string | null>(null)
   const [preimage, setPreimage] = useState('')
@@ -86,14 +86,15 @@ export default function ProductDetail() {
   })
 
   async function handleManualConfirm() {
-    if (!invoice || preimage.length !== 64) {
+    const cleaned = preimage.replace(/\s+/g, '').toLowerCase()
+    if (!invoice || cleaned.length !== 64 || !/^[0-9a-f]{64}$/.test(cleaned)) {
       setPayError('Paste the 64-character hex preimage from your Lightning wallet.')
       return
     }
     setConfirming(true)
     setPayError(null)
     try {
-      await confirmPayment(invoice.payment_id, preimage)
+      await confirmPayment(invoice.payment_id, cleaned)
       qc.invalidateQueries({ queryKey: ['orders'] })
       setBuyStep('done')
     } catch (e) {
@@ -105,6 +106,21 @@ export default function ProductDetail() {
 
   function copyBolt11() {
     if (invoice) { navigator.clipboard.writeText(invoice.bolt11); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  }
+
+  async function handleInPersonConfirm() {
+    if (!orderId) return
+    setConfirming(true)
+    setPayError(null)
+    try {
+      await updateOrderStatus(orderId, { status: 'confirmed', notes: 'In-person pickup confirmed by buyer' })
+      qc.invalidateQueries({ queryKey: ['orders'] })
+      setBuyStep('done')
+    } catch (e) {
+      setPayError(e instanceof Error ? e.message : 'Confirmation failed')
+    } finally {
+      setConfirming(false)
+    }
   }
 
   async function handleGetLocation() {
@@ -368,26 +384,52 @@ export default function ProductDetail() {
               )}
 
               {/* Manual preimage confirmation for external wallets */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-medium text-gray-500">
-                  Paid with another wallet? Paste the preimage to confirm:
+              <div className="space-y-1.5 border-t border-gray-700 pt-3">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  Paid with another wallet?
+                </p>
+                <label className="text-[11px] text-gray-500">
+                  Paste the payment preimage (hex) from your wallet's payment details:
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="64-char hex preimage from your wallet…"
+                    placeholder="64-char hex preimage…"
                     value={preimage}
-                    onChange={e => setPreimage(e.target.value.trim().toLowerCase())}
+                    onChange={e => setPreimage(e.target.value)}
                     className="input-base font-mono text-xs flex-1"
                   />
                   <button
                     onClick={handleManualConfirm}
-                    disabled={confirming || preimage.length !== 64}
+                    disabled={confirming || preimage.replace(/\s+/g, '').length !== 64}
                     className="btn-primary px-3 shrink-0"
                   >
                     {confirming ? '…' : 'Confirm'}
                   </button>
                 </div>
+                {preimage.length > 0 && preimage.replace(/\s+/g, '').length !== 64 && (
+                  <p className="text-[11px] text-yellow-500">
+                    {preimage.replace(/\s+/g, '').length}/64 characters
+                  </p>
+                )}
+              </div>
+
+              {/* In-person / cash pickup */}
+              <div className="space-y-2 border-t border-gray-700 pt-3">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  Collecting in person?
+                </p>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  If you're meeting the seller directly and have received your goods, confirm receipt here. No preimage needed.
+                </p>
+                <button
+                  onClick={handleInPersonConfirm}
+                  disabled={confirming}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-mpesa/20 border border-mpesa/30 text-mpesa hover:bg-mpesa/30 transition-colors disabled:opacity-50"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  {confirming ? 'Confirming…' : 'I received my goods'}
+                </button>
               </div>
 
               {payError && (

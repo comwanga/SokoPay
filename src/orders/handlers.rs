@@ -149,9 +149,12 @@ fn can_transition(from: &str, to: &str, actor_is_seller: bool) -> bool {
         ("paid", "processing") if actor_is_seller => true,
         ("processing", "in_transit") if actor_is_seller => true,
         ("in_transit", "delivered") if actor_is_seller => true,
-        // Buyer confirms or disputes
+        // Buyer confirms or disputes after seller marks delivered
         ("delivered", "confirmed") if !actor_is_seller => true,
         ("delivered", "disputed") if !actor_is_seller => true,
+        // Buyer confirms in-person (skips Lightning + delivery steps)
+        ("pending_payment", "confirmed") if !actor_is_seller => true,
+        ("paid", "confirmed") if !actor_is_seller => true,
         // Either party can cancel pending orders
         ("pending_payment", "cancelled") => true,
         // Buyer can cancel before seller starts processing

@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Package, ChevronDown, ChevronUp, ThumbsUp, AlertTriangle,
-  XCircle, Zap, QrCode, Copy, Check,
+  XCircle, Zap, QrCode, Copy, Check, CheckCircle,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   listOrders, updateOrderStatus, cancelOrder, createInvoice, confirmPayment,
   payWithWebLN, hasWebLN, formatKes, formatSats, ORDER_STATUS_LABELS,
 } from '../api/client.ts'
+
 import OrderStatusSteps from './OrderStatusSteps.tsx'
 import clsx from 'clsx'
 import type { Order } from '../types'
@@ -40,14 +41,28 @@ function PayPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
   })
 
   async function handleManualConfirm() {
-    if (!paymentId || preimage.length !== 64) {
+    const cleaned = preimage.replace(/\s+/g, '').toLowerCase()
+    if (!paymentId || cleaned.length !== 64 || !/^[0-9a-f]{64}$/.test(cleaned)) {
       setError('Paste the 64-character hex preimage from your Lightning wallet.')
       return
     }
     setConfirming(true)
     setError(null)
     try {
-      await confirmPayment(paymentId, preimage)
+      await confirmPayment(paymentId, cleaned)
+      onPaid()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Confirmation failed')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  async function handleInPerson() {
+    setConfirming(true)
+    setError(null)
+    try {
+      await updateOrderStatus(order.id, { status: 'confirmed', notes: 'In-person pickup confirmed by buyer' })
       onPaid()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Confirmation failed')
@@ -109,26 +124,46 @@ function PayPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
         </button>
       )}
 
-      <div className="space-y-1">
-        <label className="text-[11px] font-medium text-gray-500">
-          Paid externally? Paste payment preimage (hex) to confirm:
+      <div className="space-y-1 border-t border-gray-700 pt-3">
+        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Paid externally?</p>
+        <label className="text-[11px] text-gray-500">
+          Paste the hex preimage from your wallet's payment details:
         </label>
         <div className="flex gap-2">
           <input
             type="text"
-            placeholder="64-char hex preimage from your wallet…"
+            placeholder="64-char hex preimage…"
             value={preimage}
-            onChange={e => setPreimage(e.target.value.trim().toLowerCase())}
+            onChange={e => setPreimage(e.target.value)}
             className="input-base font-mono text-xs flex-1"
           />
           <button
             onClick={handleManualConfirm}
-            disabled={confirming || preimage.length !== 64}
+            disabled={confirming || preimage.replace(/\s+/g, '').length !== 64}
             className="btn-primary px-3 shrink-0 text-sm"
           >
             {confirming ? '…' : 'Confirm'}
           </button>
         </div>
+        {preimage.length > 0 && preimage.replace(/\s+/g, '').length !== 64 && (
+          <p className="text-[11px] text-yellow-500">{preimage.replace(/\s+/g, '').length}/64 characters</p>
+        )}
+      </div>
+
+      {/* In-person pickup — no preimage needed */}
+      <div className="space-y-2 border-t border-gray-700 pt-3">
+        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Collecting in person?</p>
+        <p className="text-[11px] text-gray-500 leading-relaxed">
+          Meeting the seller directly and already received your goods? Confirm receipt here — no preimage needed.
+        </p>
+        <button
+          onClick={handleInPerson}
+          disabled={confirming}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-mpesa/20 border border-mpesa/30 text-mpesa hover:bg-mpesa/30 transition-colors disabled:opacity-50"
+        >
+          <CheckCircle className="w-4 h-4" />
+          {confirming ? 'Confirming…' : 'I received my goods'}
+        </button>
       </div>
 
       {error && <p className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">{error}</p>}
