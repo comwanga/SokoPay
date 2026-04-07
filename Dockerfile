@@ -22,7 +22,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/agri-pay .
 COPY migrations ./migrations
 
-RUN mkdir -p /data/ldk
+RUN mkdir -p /data/uploads
 
 EXPOSE 3001
 CMD ["./agri-pay"]
