@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import { getToken, nostrLogin, getProfile } from '../api/client.ts'
 import { getTokenPayload } from '../hooks/useCurrentFarmer.ts'
 import { useNavigate } from 'react-router-dom'
+import ConnectModal from '../components/ConnectModal.tsx'
 
 interface AuthCtx {
   authed: boolean
@@ -27,11 +28,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState(() => !!getToken())
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showModal, setShowModal] = useState(false)
   const navigate = useNavigate()
 
   const onSuccess = useCallback(async () => {
     setAuthed(true)
     setConnecting(false)
+    setShowModal(false)
     // Redirect to profile setup if Lightning Address not yet set
     try {
       const payload = getTokenPayload()
@@ -42,11 +45,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch { /* non-fatal */ }
   }, [navigate])
 
-  // Silent background auth for Fedi / browser extension users
+  // Silent background auth — works for Fedi (window.nostr) and returning
+  // users who have a stored local key (nostrLogin falls back to it automatically)
   useEffect(() => {
     if (authed) return
     const t = setTimeout(() => {
-      if (!window.nostr) return
       setConnecting(true)
       nostrLogin()
         .then(onSuccess)
@@ -63,13 +66,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await onSuccess()
     } catch (e: unknown) {
       setConnecting(false)
-      setError(e instanceof Error ? e.message : 'Connection failed')
+      const msg = e instanceof Error ? e.message : 'Connection failed'
+      // NO_SIGNER means no extension and no stored key — show the modal
+      if (msg === 'NO_SIGNER') {
+        setShowModal(true)
+      } else {
+        setError(msg)
+      }
     }
   }, [onSuccess])
 
   return (
     <AuthContext.Provider value={{ authed, connecting, error, connect, clearError: () => setError(null) }}>
       {children}
+      {showModal && (
+        <ConnectModal
+          onSuccess={onSuccess}
+          onCancel={() => setShowModal(false)}
+        />
+      )}
     </AuthContext.Provider>
   )
 }

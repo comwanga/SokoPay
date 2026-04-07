@@ -1,3 +1,4 @@
+import { finalizeEvent, getPublicKey as nostrGetPublicKey } from 'nostr-tools/pure'
 import type {
   CreateInvoiceResponse,
   CreateOrderPayload,
@@ -46,6 +47,7 @@ declare global {
 // ─── Token management ────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'agri_pay_jwt'
+const NSEC_KEY  = 'agri_pay_nsec'
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -57,6 +59,58 @@ export function setToken(token: string): void {
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
+}
+
+// ─── Local Nostr key (stored for users without a browser extension) ───────────
+
+export function getLocalSecretKey(): Uint8Array | null {
+  const hex = localStorage.getItem(NSEC_KEY)
+  if (!hex || hex.length !== 64) return null
+  try {
+    return new Uint8Array(hex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
+  } catch { return null }
+}
+
+export function setLocalSecretKey(sk: Uint8Array): void {
+  localStorage.setItem(NSEC_KEY, Array.from(sk).map(b => b.toString(16).padStart(2, '0')).join(''))
+}
+
+export function clearLocalSecretKey(): void {
+  localStorage.removeItem(NSEC_KEY)
+}
+
+/** Sign a NIP-98 event locally (no browser extension required) and exchange for JWT. */
+export async function nostrLoginWithKey(secretKey: Uint8Array): Promise<LoginResponse> {
+  const url = `${window.location.origin}/api/auth/nostr`
+
+  const event = finalizeEvent({
+    kind: 27235,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [['u', url], ['method', 'POST']],
+    content: '',
+  }, secretKey)
+
+  // Verify the key produced a valid pubkey (throws if sk is bad)
+  nostrGetPublicKey(secretKey)
+
+  const res = await fetch(`${BASE}/auth/nostr`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event }),
+  })
+
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const body = await res.json()
+      if (body?.error) message = body.error
+    } catch { /* ignore */ }
+    throw new Error(message)
+  }
+
+  const resp: LoginResponse = await res.json()
+  setToken(resp.token)
+  return resp
 }
 
 // ─── Core request helper ─────────────────────────────────────────────────────
@@ -113,36 +167,42 @@ export function logout(): void {
 }
 
 export async function nostrLogin(): Promise<LoginResponse> {
-  if (!window.nostr) throw new Error('No Nostr signer available')
+  // 1. NIP-07 browser extension or Fedi mini-app
+  if (window.nostr) {
+    const url = `${window.location.origin}/api/auth/nostr`
+    const signedEvent = await window.nostr.signEvent({
+      kind: 27235,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [['u', url], ['method', 'POST']],
+      content: '',
+    })
 
-  const url = `${window.location.origin}/api/auth/nostr`
-  const unsignedEvent = {
-    kind: 27235,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [['u', url], ['method', 'POST']],
-    content: '',
+    const res = await fetch(`${BASE}/auth/nostr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event: signedEvent }),
+    })
+
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`
+      try {
+        const body = await res.json()
+        if (body?.error) message = body.error
+      } catch { /* ignore */ }
+      throw new Error(message)
+    }
+
+    const resp: LoginResponse = await res.json()
+    setToken(resp.token)
+    return resp
   }
 
-  const signedEvent = await window.nostr.signEvent(unsignedEvent)
+  // 2. Locally stored key (user pasted nsec or generated one previously)
+  const sk = getLocalSecretKey()
+  if (sk) return nostrLoginWithKey(sk)
 
-  const res = await fetch(`${BASE}/auth/nostr`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ event: signedEvent }),
-  })
-
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`
-    try {
-      const body = await res.json()
-      if (body?.error) message = body.error
-    } catch { /* ignore */ }
-    throw new Error(message)
-  }
-
-  const resp: LoginResponse = await res.json()
-  setToken(resp.token)
-  return resp
+  // 3. No signer — caller should show the connect modal
+  throw new Error('NO_SIGNER')
 }
 
 // ─── Profile ─────────────────────────────────────────────────────────────────
