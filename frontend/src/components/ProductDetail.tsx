@@ -10,6 +10,7 @@ import {
   getProduct, createOrder, createInvoice, confirmPayment,
   payWithWebLN, formatKes, formatSats,
 } from '../api/client.ts'
+import { useAuth } from '../context/auth.tsx'
 import clsx from 'clsx'
 
 type BuyStep = 'details' | 'location' | 'invoice' | 'paying' | 'done'
@@ -18,6 +19,7 @@ export default function ProductDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const { authed, connecting, connect } = useAuth()
 
   const [imgIdx, setImgIdx] = useState(0)
   const [buyStep, setBuyStep] = useState<BuyStep | null>(null)
@@ -210,12 +212,22 @@ export default function ProductDetail() {
           {/* Buy flow */}
           {buyStep === null && (
             <button
-              disabled={qty <= 0}
-              onClick={() => { setBuyStep('details'); setPayError(null) }}
+              disabled={qty <= 0 || connecting}
+              onClick={() => {
+                if (!authed) { connect(); return }
+                setBuyStep('details')
+                setPayError(null)
+              }}
               className="btn-primary w-full justify-center"
             >
               <Zap className="w-4 h-4" />
-              {qty <= 0 ? 'Out of Stock' : 'Buy Now · Pay in Sats'}
+              {qty <= 0
+                ? 'Out of Stock'
+                : connecting
+                  ? 'Connecting…'
+                  : authed
+                    ? 'Buy Now · Pay in Sats'
+                    : 'Connect to Buy'}
             </button>
           )}
 

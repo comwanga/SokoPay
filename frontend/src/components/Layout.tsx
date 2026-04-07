@@ -1,8 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { ShoppingBag, Package, Wheat, TrendingUp, AlertCircle, LogOut, Plus, UserCircle } from 'lucide-react'
+import { ShoppingBag, Package, Wheat, TrendingUp, AlertCircle, LogOut, Plus, UserCircle, LogIn } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
+import { useAuth } from '../context/auth.tsx'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
@@ -84,6 +85,7 @@ function RateDisplay() {
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
+  const { authed, connecting, connect } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
 
   function handleLogout() {
@@ -129,36 +131,47 @@ export default function Layout({ children }: { children: ReactNode }) {
           <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
             Account
           </p>
-          <NavLink
-            to="/profile"
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800',
-              )
-            }
-          >
-            <span className="w-5 h-5 shrink-0 relative">
-              <UserCircle />
-              {needsSetup && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400" />
-              )}
-            </span>
-            <span className="flex-1">
-              {farmer?.name ?? 'Profile'}
-            </span>
-            {needsSetup && (
-              <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">
-                Setup
+          {authed ? (
+            <NavLink
+              to="/profile"
+              className={({ isActive }) =>
+                clsx(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800',
+                )
+              }
+            >
+              <span className="w-5 h-5 shrink-0 relative">
+                <UserCircle />
+                {needsSetup && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400" />
+                )}
               </span>
-            )}
-          </NavLink>
+              <span className="flex-1">
+                {farmer?.name ?? 'Profile'}
+              </span>
+              {needsSetup && (
+                <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">
+                  Setup
+                </span>
+              )}
+            </NavLink>
+          ) : (
+            <button
+              onClick={connect}
+              disabled={connecting}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left text-brand-400 hover:text-brand-300 hover:bg-brand-500/10"
+            >
+              <span className="w-5 h-5 shrink-0"><LogIn /></span>
+              <span>{connecting ? 'Connecting…' : 'Connect'}</span>
+            </button>
+          )}
         </nav>
 
         {/* Setup nudge banner */}
-        {needsSetup && (
+        {authed && needsSetup && (
           <button
             onClick={() => navigate('/profile?setup=1')}
             className="mx-3 mb-2 flex gap-2 items-start bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2.5 text-left hover:bg-yellow-900/30 transition-colors"
@@ -178,13 +191,15 @@ export default function Layout({ children }: { children: ReactNode }) {
             </p>
             <RateDisplay />
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            Sign out
-          </button>
+          {authed && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign out
+            </button>
+          )}
         </div>
       </aside>
 
