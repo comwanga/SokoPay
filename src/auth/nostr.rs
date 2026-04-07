@@ -146,26 +146,25 @@ pub async fn pubkey_login(
         ));
     }
 
-    let farmer_id: uuid::Uuid = match sqlx::query_scalar(
-        "SELECT id FROM farmers WHERE nostr_pubkey = $1",
-    )
-    .bind(&pubkey)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(id) => id,
-        None => {
-            sqlx::query_scalar(
-                "INSERT INTO farmers (name, nostr_pubkey)
+    let farmer_id: uuid::Uuid =
+        match sqlx::query_scalar("SELECT id FROM farmers WHERE nostr_pubkey = $1")
+            .bind(&pubkey)
+            .fetch_optional(&state.db)
+            .await?
+        {
+            Some(id) => id,
+            None => {
+                sqlx::query_scalar(
+                    "INSERT INTO farmers (name, nostr_pubkey)
                  VALUES ($1, $2)
                  RETURNING id",
-            )
-            .bind(format!("Member {}", &pubkey[..8]))
-            .bind(&pubkey)
-            .fetch_one(&state.db)
-            .await?
-        }
-    };
+                )
+                .bind(format!("Member {}", &pubkey[..8]))
+                .bind(&pubkey)
+                .fetch_one(&state.db)
+                .await?
+            }
+        };
 
     let sub = farmer_id.to_string();
     let token = super::jwt::generate_token(
