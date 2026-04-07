@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 
 # JWT
-jsonwebtoken = "10"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 
 # Decimal arithmetic
 rust_decimal = { version = "1", features = ["serde-with-str"] }

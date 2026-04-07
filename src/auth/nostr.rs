@@ -24,6 +24,44 @@ pub struct NostrEvent {
     pub sig: String,
 }
 
+// ── Shared helper: find or create a farmer row by Nostr pubkey ────────────────
+
+async fn find_or_create_farmer(db: &sqlx::PgPool, pubkey: &str) -> AppResult<Uuid> {
+    let existing: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM farmers WHERE nostr_pubkey = $1")
+            .bind(pubkey)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| {
+                tracing::error!("DB error looking up farmer by pubkey: {}", e);
+                e
+            })?;
+
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+
+    // New user — phone is NULL for Nostr-only accounts; cooperative defaults to ''
+    let id: Uuid =
+        sqlx::query_scalar("INSERT INTO farmers (name, nostr_pubkey) VALUES ($1, $2) RETURNING id")
+            .bind(format!("Member {}", &pubkey[..8]))
+            .bind(pubkey)
+            .fetch_one(db)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "DB error inserting farmer for pubkey {}: {}",
+                    &pubkey[..8],
+                    e
+                );
+                e
+            })?;
+
+    Ok(id)
+}
+
+// ── NIP-98 authenticated login ────────────────────────────────────────────────
+
 pub async fn nostr_login(
     State(state): State<SharedState>,
     Json(body): Json<NostrLoginRequest>,
@@ -76,7 +114,7 @@ pub async fn nostr_login(
     ]);
     let canonical_bytes = serde_json::to_vec(&canonical)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize error: {}", e)))?;
-    let computed_id = hex::encode(Sha256::digest(&canonical_bytes));
+    let computed_id = hex::encode(Sha256::digest(canonical_bytes));
     if computed_id != event.id {
         return Err(AppError::Unauthorized("Event ID mismatch".into()));
     }
@@ -85,29 +123,7 @@ pub async fn nostr_login(
     verify_schnorr(&event.pubkey, &event.id, &event.sig)?;
 
     // 7. Find or create user by Nostr pubkey
-    let pubkey = &event.pubkey;
-
-    let existing: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM farmers WHERE nostr_pubkey = $1")
-            .bind(pubkey)
-            .fetch_optional(&state.db)
-            .await?;
-
-    let farmer_id = match existing {
-        Some(id) => id,
-        None => {
-            // New user: create a farmers row. Phone is NULL for Nostr-only accounts.
-            sqlx::query_scalar(
-                "INSERT INTO farmers (name, nostr_pubkey)
-                 VALUES ($1, $2)
-                 RETURNING id",
-            )
-            .bind(format!("Member {}", &pubkey[..8]))
-            .bind(pubkey)
-            .fetch_one(&state.db)
-            .await?
-        }
-    };
+    let farmer_id = find_or_create_farmer(&state.db, &event.pubkey).await?;
 
     let sub = farmer_id.to_string();
     let token = jwt::generate_token(
@@ -126,7 +142,7 @@ pub async fn nostr_login(
     }))
 }
 
-// ── Pubkey-only login (no signature — for users who know their npub) ─────────
+// ── Pubkey-only login (no signature — for users who paste their npub) ─────────
 
 #[derive(Debug, Deserialize)]
 pub struct PubkeyLoginRequest {
@@ -137,7 +153,7 @@ pub struct PubkeyLoginRequest {
 pub async fn pubkey_login(
     State(state): State<SharedState>,
     Json(body): Json<PubkeyLoginRequest>,
-) -> AppResult<Json<super::LoginResponse>> {
+) -> AppResult<Json<LoginResponse>> {
     let pubkey = body.pubkey.trim().to_lowercase();
 
     if pubkey.len() != 64 || !pubkey.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -146,36 +162,18 @@ pub async fn pubkey_login(
         ));
     }
 
-    let farmer_id: uuid::Uuid =
-        match sqlx::query_scalar("SELECT id FROM farmers WHERE nostr_pubkey = $1")
-            .bind(&pubkey)
-            .fetch_optional(&state.db)
-            .await?
-        {
-            Some(id) => id,
-            None => {
-                sqlx::query_scalar(
-                    "INSERT INTO farmers (name, nostr_pubkey)
-                 VALUES ($1, $2)
-                 RETURNING id",
-                )
-                .bind(format!("Member {}", &pubkey[..8]))
-                .bind(&pubkey)
-                .fetch_one(&state.db)
-                .await?
-            }
-        };
+    let farmer_id = find_or_create_farmer(&state.db, &pubkey).await?;
 
     let sub = farmer_id.to_string();
-    let token = super::jwt::generate_token(
+    let token = jwt::generate_token(
         &state.config.jwt_secret,
         &sub,
-        super::Role::Farmer,
+        Role::Farmer,
         Some(farmer_id),
         state.config.jwt_expiry_hours,
     )?;
 
-    Ok(axum::Json(super::LoginResponse {
+    Ok(Json(LoginResponse {
         token,
         role: "farmer".into(),
         user_id: sub,
