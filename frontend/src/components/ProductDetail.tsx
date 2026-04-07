@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, MapPin, Package, Truck, Zap, QrCode,
-  CheckCircle, AlertCircle, ChevronLeft, ChevronRight,
+  CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Copy, Check,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   getProduct, createOrder, createInvoice, confirmPayment,
-  payWithWebLN, formatKes, formatSats,
+  payWithWebLN, hasWebLN, formatKes, formatSats,
 } from '../api/client.ts'
 import { useAuth } from '../context/auth.tsx'
 import clsx from 'clsx'
@@ -34,6 +34,9 @@ export default function ProductDetail() {
   const [_orderId, setOrderId] = useState<string | null>(null)
   const [invoice, setInvoice] = useState<{ payment_id: string; bolt11: string; amount_sats: number } | null>(null)
   const [payError, setPayError] = useState<string | null>(null)
+  const [preimage, setPreimage] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [confirming, setConfirming] = useState(false)
 
   const { data: product, isLoading, isError } = useQuery({
     queryKey: ['product', id],
@@ -81,6 +84,28 @@ export default function ProductDetail() {
       setBuyStep('invoice')
     },
   })
+
+  async function handleManualConfirm() {
+    if (!invoice || preimage.length !== 64) {
+      setPayError('Paste the 64-character hex preimage from your Lightning wallet.')
+      return
+    }
+    setConfirming(true)
+    setPayError(null)
+    try {
+      await confirmPayment(invoice.payment_id, preimage)
+      qc.invalidateQueries({ queryKey: ['orders'] })
+      setBuyStep('done')
+    } catch (e) {
+      setPayError(e instanceof Error ? e.message : 'Confirmation failed')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  function copyBolt11() {
+    if (invoice) { navigator.clipboard.writeText(invoice.bolt11); setCopied(true); setTimeout(() => setCopied(false), 2000) }
+  }
 
   async function handleGetLocation() {
     if (!navigator.geolocation) return
@@ -308,25 +333,61 @@ export default function ProductDetail() {
           {/* Step: show invoice */}
           {buyStep === 'invoice' && invoice && (
             <div className="card p-4 space-y-4">
-              <h3 className="font-semibold text-gray-100">Pay Invoice</h3>
-              <p className="text-sm text-gray-400">
-                Amount: <span className="text-white font-semibold">{formatSats(invoice.amount_sats)}</span>
-              </p>
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-100">Pay Invoice</h3>
+                <span className="text-sm font-bold text-brand-400">{formatSats(invoice.amount_sats)}</span>
+              </div>
 
               <div className="flex justify-center p-4 bg-white rounded-xl">
                 <QRCodeSVG value={invoice.bolt11.toUpperCase()} size={180} />
               </div>
 
               <div className="flex items-center gap-2 bg-gray-800 rounded-lg p-2">
-                <p className="text-[10px] text-gray-400 font-mono break-all flex-1">
-                  {invoice.bolt11.slice(0, 40)}…
+                <p className="text-[10px] text-gray-400 font-mono break-all flex-1 leading-relaxed">
+                  {invoice.bolt11.slice(0, 44)}…
                 </p>
-                <button
-                  onClick={() => navigator.clipboard.writeText(invoice.bolt11)}
-                  className="text-xs text-brand-400 hover:text-brand-300 shrink-0"
-                >
-                  Copy
+                <button onClick={copyBolt11} className="text-brand-400 hover:text-brand-300 shrink-0">
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 </button>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <QrCode className="w-3.5 h-3.5 shrink-0" />
+                Scan with any Lightning wallet, then paste the preimage below to confirm.
+              </div>
+
+              {hasWebLN && (
+                <button
+                  onClick={() => payWebLN.mutate()}
+                  disabled={payWebLN.isPending}
+                  className="btn-primary w-full justify-center"
+                >
+                  <Zap className="w-4 h-4" />
+                  {payWebLN.isPending ? 'Paying…' : 'Pay with Fedi / WebLN'}
+                </button>
+              )}
+
+              {/* Manual preimage confirmation for external wallets */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium text-gray-500">
+                  Paid with another wallet? Paste the preimage to confirm:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="64-char hex preimage from your wallet…"
+                    value={preimage}
+                    onChange={e => setPreimage(e.target.value.trim().toLowerCase())}
+                    className="input-base font-mono text-xs flex-1"
+                  />
+                  <button
+                    onClick={handleManualConfirm}
+                    disabled={confirming || preimage.length !== 64}
+                    className="btn-primary px-3 shrink-0"
+                  >
+                    {confirming ? '…' : 'Confirm'}
+                  </button>
+                </div>
               </div>
 
               {payError && (
@@ -335,31 +396,12 @@ export default function ProductDetail() {
                 </p>
               )}
 
-              <div className="flex items-center gap-2">
-                <QrCode className="w-4 h-4 text-gray-500 shrink-0" />
-                <p className="text-xs text-gray-500">
-                  Scan with any Lightning wallet, or pay from Fedi below.
-                </p>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setBuyStep(null); setOrderId(null); setInvoice(null); }}
-                  className="btn-secondary flex-1 justify-center"
-                >
-                  Cancel
-                </button>
-                {window.webln && (
-                  <button
-                    onClick={() => payWebLN.mutate()}
-                    disabled={payWebLN.isPending}
-                    className="btn-primary flex-1 justify-center"
-                  >
-                    <Zap className="w-4 h-4" />
-                    {payWebLN.isPending ? 'Paying…' : 'Pay with Fedi'}
-                  </button>
-                )}
-              </div>
+              <button
+                onClick={() => { setBuyStep(null); setOrderId(null); setInvoice(null); setPreimage('') }}
+                className="btn-secondary w-full justify-center text-sm"
+              >
+                Cancel
+              </button>
             </div>
           )}
 
