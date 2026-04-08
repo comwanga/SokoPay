@@ -82,8 +82,8 @@ export default function ProductDetail() {
       setBuyStep('paying')
       setPayError(null)
 
-      const preimage = await payWithWebLN(invoice.bolt11)
-      await confirmPayment(invoice.payment_id, preimage)
+      const paymentPreimage = await payWithWebLN(invoice.bolt11)
+      await confirmPayment(invoice.payment_id, paymentPreimage)
 
       qc.invalidateQueries({ queryKey: ['orders'] })
       setBuyStep('done')
@@ -437,15 +437,15 @@ export default function ProductDetail() {
                   />
                   <button
                     onClick={handleManualConfirm}
-                    disabled={confirming || preimage.replace(/\s+/g, '').length !== 64}
+                    disabled={confirming || !/^[0-9a-f]{64}$/i.test(preimage.replace(/\s+/g, ''))}
                     className="btn-primary px-3 shrink-0"
                   >
                     {confirming ? '…' : 'Confirm'}
                   </button>
                 </div>
-                {preimage.length > 0 && preimage.replace(/\s+/g, '').length !== 64 && (
+                {preimage.length > 0 && !/^[0-9a-f]{64}$/i.test(preimage.replace(/\s+/g, '')) && (
                   <p className="text-[11px] text-yellow-500">
-                    {preimage.replace(/\s+/g, '').length}/64 characters
+                    {preimage.replace(/\s+/g, '').length}/64 hex chars
                   </p>
                 )}
               </div>

@@ -139,14 +139,14 @@ function PayPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
           />
           <button
             onClick={handleManualConfirm}
-            disabled={confirming || preimage.replace(/\s+/g, '').length !== 64}
+            disabled={confirming || !/^[0-9a-f]{64}$/i.test(preimage.replace(/\s+/g, ''))}
             className="btn-primary px-3 shrink-0 text-sm"
           >
             {confirming ? '…' : 'Confirm'}
           </button>
         </div>
-        {preimage.length > 0 && preimage.replace(/\s+/g, '').length !== 64 && (
-          <p className="text-[11px] text-yellow-500">{preimage.replace(/\s+/g, '').length}/64 characters</p>
+        {preimage.length > 0 && !/^[0-9a-f]{64}$/i.test(preimage.replace(/\s+/g, '')) && (
+          <p className="text-[11px] text-yellow-500">{preimage.replace(/\s+/g, '').length}/64 hex chars</p>
         )}
       </div>
 
