@@ -9,6 +9,7 @@ mod oracle;
 mod orders;
 mod payments;
 mod products;
+mod ratings;
 mod routes;
 mod state;
 

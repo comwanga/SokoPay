@@ -6,6 +6,7 @@ import { listProducts, formatKes } from '../api/client.ts'
 import { PRODUCT_CATEGORIES } from '../types'
 import clsx from 'clsx'
 import type { Product } from '../types'
+import StarRating from './StarRating.tsx'
 
 function ProductCard({ product }: { product: Product }) {
   const navigate = useNavigate()
@@ -49,6 +50,13 @@ function ProductCard({ product }: { product: Product }) {
           </span>
           <span className="text-xs text-gray-500">/{product.unit}</span>
         </div>
+
+        {(product.rating_count ?? 0) > 0 && (
+          <div className="flex items-center gap-1">
+            <StarRating rating={product.avg_rating ?? 0} size="sm" />
+            <span className="text-[11px] text-gray-500">({product.rating_count})</span>
+          </div>
+        )}
 
         <div className="flex items-center justify-between text-xs text-gray-500 mt-auto pt-2">
           <span className="font-medium text-gray-400">{product.seller_name}</span>

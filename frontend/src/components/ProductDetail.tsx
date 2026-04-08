@@ -9,8 +9,10 @@ import { QRCodeSVG } from 'qrcode.react'
 import {
   getProduct, createOrder, createInvoice, confirmPayment,
   updateOrderStatus, payWithWebLN, hasWebLN, formatKes, formatSats,
+  rateProduct,
 } from '../api/client.ts'
 import { useAuth } from '../context/auth.tsx'
+import StarRating from './StarRating.tsx'
 import clsx from 'clsx'
 
 type BuyStep = 'details' | 'location' | 'invoice' | 'paying' | 'done'
@@ -37,6 +39,13 @@ export default function ProductDetail() {
   const [preimage, setPreimage] = useState('')
   const [copied, setCopied] = useState(false)
   const [confirming, setConfirming] = useState(false)
+
+  // Rating state (shown after order is done)
+  const [ratingValue, setRatingValue] = useState(0)
+  const [ratingReview, setRatingReview] = useState('')
+  const [ratingSubmitting, setRatingSubmitting] = useState(false)
+  const [ratingSubmitted, setRatingSubmitted] = useState(false)
+  const [ratingError, setRatingError] = useState<string | null>(null)
 
   const { data: product, isLoading, isError } = useQuery({
     queryKey: ['product', id],
@@ -120,6 +129,24 @@ export default function ProductDetail() {
       setPayError(e instanceof Error ? e.message : 'Confirmation failed')
     } finally {
       setConfirming(false)
+    }
+  }
+
+  async function handleRatingSubmit() {
+    if (!product || !orderId || ratingValue === 0) return
+    setRatingSubmitting(true)
+    setRatingError(null)
+    try {
+      await rateProduct(product.id, {
+        order_id: orderId,
+        rating: ratingValue,
+        review: ratingReview.trim() || undefined,
+      })
+      setRatingSubmitted(true)
+    } catch (e) {
+      setRatingError(e instanceof Error ? e.message : 'Failed to submit rating')
+    } finally {
+      setRatingSubmitting(false)
     }
   }
 
@@ -229,6 +256,15 @@ export default function ProductDetail() {
           )}
 
           <h1 className="text-xl font-bold text-gray-100">{product.title}</h1>
+
+          {(product.rating_count ?? 0) > 0 && (
+            <div className="flex items-center gap-2">
+              <StarRating rating={product.avg_rating ?? 0} size="sm" />
+              <span className="text-xs text-gray-500">
+                {(product.avg_rating ?? 0).toFixed(1)} ({product.rating_count} review{product.rating_count !== 1 ? 's' : ''})
+              </span>
+            </div>
+          )}
 
           <div className="flex items-baseline gap-1">
             <span className="text-2xl font-bold text-brand-400">{formatKes(product.price_kes)}</span>
@@ -457,21 +493,59 @@ export default function ProductDetail() {
 
           {/* Step: done */}
           {buyStep === 'done' && (
-            <div className="card p-6 text-center space-y-3">
-              <CheckCircle className="w-10 h-10 text-mpesa mx-auto" />
-              <p className="font-semibold text-gray-100">Payment confirmed!</p>
-              <p className="text-sm text-gray-400">
-                Sats sent directly to the seller's wallet. Track your delivery below.
-              </p>
-              <div className="flex gap-2 justify-center">
-                <button
-                  onClick={() => navigate('/orders')}
-                  className="btn-primary"
-                >
-                  <Truck className="w-4 h-4" />
-                  Track Order
-                </button>
+            <div className="card p-6 space-y-4">
+              <div className="text-center space-y-2">
+                <CheckCircle className="w-10 h-10 text-mpesa mx-auto" />
+                <p className="font-semibold text-gray-100">Payment confirmed!</p>
+                <p className="text-sm text-gray-400">
+                  Sats sent directly to the seller's wallet. Track your delivery below.
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={() => navigate('/orders')}
+                    className="btn-primary"
+                  >
+                    <Truck className="w-4 h-4" />
+                    Track Order
+                  </button>
+                </div>
               </div>
+
+              {/* Rating form */}
+              {!ratingSubmitted ? (
+                <div className="border-t border-gray-700 pt-4 space-y-3">
+                  <p className="text-sm font-semibold text-gray-200">Rate this product</p>
+                  <StarRating
+                    rating={ratingValue}
+                    size="md"
+                    interactive
+                    onChange={setRatingValue}
+                  />
+                  <textarea
+                    rows={2}
+                    placeholder="Leave a review (optional)"
+                    value={ratingReview}
+                    onChange={e => setRatingReview(e.target.value)}
+                    className="input-base text-sm w-full resize-none"
+                  />
+                  {ratingError && (
+                    <p className="text-xs text-red-400 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
+                      {ratingError}
+                    </p>
+                  )}
+                  <button
+                    onClick={handleRatingSubmit}
+                    disabled={ratingValue === 0 || ratingSubmitting}
+                    className="btn-secondary text-sm w-full justify-center"
+                  >
+                    {ratingSubmitting ? 'Submitting…' : 'Submit Rating'}
+                  </button>
+                </div>
+              ) : (
+                <div className="border-t border-gray-700 pt-4 text-center">
+                  <p className="text-sm text-mpesa font-medium">Thanks for your rating!</p>
+                </div>
+              )}
             </div>
           )}
         </div>

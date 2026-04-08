@@ -59,6 +59,8 @@ export interface Product {
   status: ProductStatus
   location_name: string
   images: ProductImage[]
+  avg_rating?: number
+  rating_count?: number
   created_at: string
   updated_at: string
 }
@@ -175,4 +177,65 @@ export interface ExchangeRate {
   btc_usd: string
   fetched_at: string
   live: boolean
+}
+
+// ─── Ratings ──────────────────────────────────────────────────────────────────
+
+export interface RatingRequest {
+  order_id: string
+  rating: number
+  review?: string
+}
+
+export interface RatingResponse {
+  id: string
+  rating: number
+  review: string | null
+  buyer_name: string
+  created_at: string
+}
+
+export interface RatingSummary {
+  avg_rating: number
+  rating_count: number
+  ratings: RatingResponse[]
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+export interface ProductStat {
+  product_id: string
+  title: string
+  units_sold: string
+  revenue_kes: string
+  order_count: number
+}
+
+export interface MonthlyRevenue {
+  month: string
+  revenue_kes: string
+  order_count: number
+}
+
+export interface OrderSummary {
+  id: string
+  product_title: string
+  buyer_name: string
+  quantity: string
+  unit: string
+  total_kes: string
+  status: string
+  created_at: string
+}
+
+export interface AnalyticsResponse {
+  total_orders: number
+  completed_orders: number
+  pending_orders: number
+  total_revenue_kes: string
+  total_revenue_sats: number
+  avg_order_value_kes: string
+  top_products: ProductStat[]
+  recent_orders: OrderSummary[]
+  monthly_revenue: MonthlyRevenue[]
 }

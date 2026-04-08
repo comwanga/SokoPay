@@ -4,13 +4,16 @@ import { useNavigate } from 'react-router-dom'
 import {
   Plus, Package, Edit2, Trash2, ChevronDown, ChevronUp,
   Truck, CheckCircle, Eye, EyeOff, AlertCircle, Zap,
+  ShoppingBag, TrendingUp,
 } from 'lucide-react'
 import {
   listProducts, listOrders, updateProduct, deleteProduct,
   updateOrderStatus, formatKes, ORDER_STATUS_LABELS, sellerNextStatus,
+  getFarmerAnalytics, getSellerRatings,
 } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
 import OrderStatusSteps from './OrderStatusSteps.tsx'
+import StarRating from './StarRating.tsx'
 import clsx from 'clsx'
 import type { Order, Product } from '../types'
 
@@ -122,6 +125,18 @@ function IncomingOrderCard({ order }: { order: Order }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['orders', 'seller'] }),
   })
 
+  const completePOS = useMutation({
+    mutationFn: () =>
+      updateOrderStatus(order.id, {
+        status: 'confirmed',
+        notes: 'Completed at point of sale',
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['orders', 'seller'] }),
+  })
+
+  const canCompletePOS =
+    order.status === 'pending_payment' || order.status === 'paid'
+
   return (
     <div className="card overflow-hidden">
       <button
@@ -231,6 +246,20 @@ function IncomingOrderCard({ order }: { order: Order }) {
             </div>
           )}
 
+          {/* POS completion — seller completes in-person sale */}
+          {canCompletePOS && (
+            <div className="border-t border-gray-800 pt-3">
+              <button
+                onClick={() => completePOS.mutate()}
+                disabled={completePOS.isPending}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-mpesa/20 border border-mpesa/30 text-mpesa hover:bg-mpesa/30 transition-colors disabled:opacity-50"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                {completePOS.isPending ? 'Completing…' : 'Complete Sale (In-Person)'}
+              </button>
+            </div>
+          )}
+
           <p className="text-[11px] text-gray-600">
             {new Date(order.created_at).toLocaleString('en-KE')}
           </p>
@@ -244,7 +273,7 @@ function IncomingOrderCard({ order }: { order: Order }) {
 
 export default function SellerDashboard() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState<'listings' | 'orders'>('listings')
+  const [tab, setTab] = useState<'listings' | 'orders' | 'analytics'>('listings')
   const { farmerId, needsSetup } = useCurrentFarmer()
 
   const myProductsQuery = useQuery({
@@ -259,6 +288,20 @@ export default function SellerDashboard() {
     queryFn: () => listOrders('seller'),
     staleTime: 15_000,
     refetchInterval: 30_000,
+  })
+
+  const analyticsQuery = useQuery({
+    queryKey: ['analytics', farmerId],
+    queryFn: () => (farmerId ? getFarmerAnalytics(farmerId) : null),
+    enabled: !!farmerId && tab === 'analytics',
+    staleTime: 60_000,
+  })
+
+  const ratingsQuery = useQuery({
+    queryKey: ['seller-ratings', farmerId],
+    queryFn: () => (farmerId ? getSellerRatings(farmerId) : null),
+    enabled: !!farmerId && tab === 'analytics',
+    staleTime: 60_000,
   })
 
   const activeOrders = incomingOrders.filter(o => !['confirmed', 'cancelled'].includes(o.status))
@@ -320,6 +363,16 @@ export default function SellerDashboard() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => setTab('analytics')}
+          className={clsx(
+            'px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5',
+            tab === 'analytics' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
+          )}
+        >
+          <TrendingUp className="w-3.5 h-3.5" />
+          Analytics
+        </button>
       </div>
 
       {/* Listings tab */}
@@ -374,6 +427,163 @@ export default function SellerDashboard() {
               <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Completed / Cancelled</h2>
               {pastOrders.map(o => <IncomingOrderCard key={o.id} order={o} />)}
             </section>
+          )}
+        </div>
+      )}
+
+      {/* Analytics tab */}
+      {tab === 'analytics' && (
+        <div className="space-y-6">
+          {analyticsQuery.isLoading && (
+            <div className="space-y-3">
+              {[1, 2, 3, 4].map(i => <div key={i} className="card h-20 skeleton" />)}
+            </div>
+          )}
+
+          {analyticsQuery.isError && (
+            <p className="text-sm text-red-400">Failed to load analytics. Please refresh.</p>
+          )}
+
+          {analyticsQuery.data && (
+            <>
+              {/* Seller rating summary */}
+              {ratingsQuery.data && ratingsQuery.data.rating_count > 0 && (
+                <div className="card p-4 flex items-center gap-4">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Your Rating</p>
+                    <div className="flex items-center gap-2">
+                      <StarRating rating={ratingsQuery.data.avg_rating} size="md" />
+                      <span className="text-lg font-bold text-gray-100">
+                        {ratingsQuery.data.avg_rating.toFixed(1)}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        ({ratingsQuery.data.rating_count} review{ratingsQuery.data.rating_count !== 1 ? 's' : ''})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="card p-4 space-y-1">
+                  <p className="text-xs font-medium text-gray-500">Total Revenue</p>
+                  <p className="text-lg font-bold text-brand-400">
+                    {formatKes(analyticsQuery.data.total_revenue_kes)}
+                  </p>
+                </div>
+                <div className="card p-4 space-y-1">
+                  <p className="text-xs font-medium text-gray-500">Completed</p>
+                  <p className="text-lg font-bold text-gray-100">
+                    {analyticsQuery.data.completed_orders}
+                  </p>
+                </div>
+                <div className="card p-4 space-y-1">
+                  <p className="text-xs font-medium text-gray-500">Pending</p>
+                  <p className="text-lg font-bold text-yellow-400">
+                    {analyticsQuery.data.pending_orders}
+                  </p>
+                </div>
+                <div className="card p-4 space-y-1">
+                  <p className="text-xs font-medium text-gray-500">Avg Order</p>
+                  <p className="text-lg font-bold text-gray-100">
+                    {formatKes(analyticsQuery.data.avg_order_value_kes)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Top Products */}
+              {analyticsQuery.data.top_products.length > 0 && (
+                <div className="card overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-800">
+                    <h3 className="text-sm font-semibold text-gray-200">Top Products by Revenue</h3>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="text-left text-xs font-medium text-gray-500 px-4 py-2">Product</th>
+                        <th className="text-right text-xs font-medium text-gray-500 px-4 py-2">Units Sold</th>
+                        <th className="text-right text-xs font-medium text-gray-500 px-4 py-2">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {analyticsQuery.data.top_products.map(p => (
+                        <tr key={p.product_id} className="border-b border-gray-800/50 last:border-0">
+                          <td className="px-4 py-2.5 text-gray-200 truncate max-w-[160px]">{p.title}</td>
+                          <td className="px-4 py-2.5 text-right text-gray-400">
+                            {parseFloat(p.units_sold).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-brand-400 font-medium">
+                            {formatKes(p.revenue_kes)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Monthly Revenue */}
+              {analyticsQuery.data.monthly_revenue.length > 0 && (
+                <div className="card overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-800">
+                    <h3 className="text-sm font-semibold text-gray-200">Monthly Revenue (Last 6 Months)</h3>
+                  </div>
+                  <div className="divide-y divide-gray-800/50">
+                    {analyticsQuery.data.monthly_revenue.map(m => (
+                      <div key={m.month} className="flex items-center justify-between px-4 py-3">
+                        <div>
+                          <p className="text-sm text-gray-200">{m.month}</p>
+                          <p className="text-xs text-gray-500">{m.order_count} order{m.order_count !== 1 ? 's' : ''}</p>
+                        </div>
+                        <p className="text-sm font-semibold text-brand-400">{formatKes(m.revenue_kes)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Orders */}
+              {analyticsQuery.data.recent_orders.length > 0 && (
+                <div className="card overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-800">
+                    <h3 className="text-sm font-semibold text-gray-200">Recent Orders</h3>
+                  </div>
+                  <div className="divide-y divide-gray-800/50">
+                    {analyticsQuery.data.recent_orders.map(o => (
+                      <div key={o.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <p className="text-sm text-gray-200 truncate">{o.product_title}</p>
+                          <p className="text-xs text-gray-500">
+                            {o.buyer_name} · {o.quantity} {o.unit}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0 space-y-0.5">
+                          <p className="text-sm font-medium text-gray-100">{formatKes(o.total_kes)}</p>
+                          <span className={clsx(
+                            'text-[11px] font-medium px-1.5 py-0.5 rounded-full',
+                            o.status === 'confirmed'       && 'bg-mpesa/20 text-mpesa',
+                            o.status === 'cancelled'       && 'bg-red-900/20 text-red-400',
+                            o.status === 'pending_payment' && 'bg-gray-700 text-gray-400',
+                            !['confirmed', 'cancelled', 'pending_payment'].includes(o.status) && 'bg-brand-500/20 text-brand-400',
+                          )}>
+                            {o.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {analyticsQuery.data.total_orders === 0 && (
+                <div className="text-center py-16 space-y-2">
+                  <TrendingUp className="w-12 h-12 text-gray-700 mx-auto" />
+                  <p className="text-gray-400 font-medium">No sales data yet</p>
+                  <p className="text-sm text-gray-600">Analytics will appear as orders are completed</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

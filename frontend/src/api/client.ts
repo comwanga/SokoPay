@@ -1,5 +1,6 @@
 import { finalizeEvent, getPublicKey as nostrGetPublicKey, verifyEvent } from 'nostr-tools/pure'
 import type {
+  AnalyticsResponse,
   CreateInvoiceResponse,
   CreateOrderPayload,
   CreateProductPayload,
@@ -12,6 +13,9 @@ import type {
   PaymentRecord,
   Product,
   ProductImage,
+  RatingRequest,
+  RatingResponse,
+  RatingSummary,
   UpdateFarmerPayload,
   UpdateOrderStatusPayload,
   UpdateProductPayload,
@@ -378,6 +382,36 @@ export async function payWithWebLN(bolt11: string): Promise<string> {
 
 export async function getHealth(): Promise<{ status: string; version: string }> {
   return request('/health')
+}
+
+// ─── Ratings ─────────────────────────────────────────────────────────────────
+
+export async function getProductRatings(productId: string): Promise<RatingSummary> {
+  return request<RatingSummary>(`/products/${productId}/ratings`)
+}
+
+export async function rateProduct(productId: string, payload: RatingRequest): Promise<RatingResponse> {
+  return request<RatingResponse>(`/products/${productId}/ratings`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getSellerRatings(farmerId: string): Promise<RatingSummary> {
+  return request<RatingSummary>(`/farmers/${farmerId}/ratings`)
+}
+
+export async function rateSellerFromBuyer(farmerId: string, payload: RatingRequest): Promise<RatingResponse> {
+  return request<RatingResponse>(`/farmers/${farmerId}/ratings`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+export async function getFarmerAnalytics(farmerId: string): Promise<AnalyticsResponse> {
+  return request<AnalyticsResponse>(`/farmers/${farmerId}/analytics`)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

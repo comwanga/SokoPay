@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -320,6 +321,223 @@ pub async fn delete_farmer(
     }
 
     Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ProductStat {
+    pub product_id: Uuid,
+    pub title: String,
+    pub units_sold: Decimal,
+    pub revenue_kes: Decimal,
+    pub order_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MonthlyRevenue {
+    pub month: String,
+    pub revenue_kes: Decimal,
+    pub order_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrderSummary {
+    pub id: Uuid,
+    pub product_title: String,
+    pub buyer_name: String,
+    pub quantity: Decimal,
+    pub unit: String,
+    pub total_kes: Decimal,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AnalyticsResponse {
+    pub total_orders: i64,
+    pub completed_orders: i64,
+    pub pending_orders: i64,
+    pub total_revenue_kes: Decimal,
+    pub total_revenue_sats: i64,
+    pub avg_order_value_kes: Decimal,
+    pub top_products: Vec<ProductStat>,
+    pub recent_orders: Vec<OrderSummary>,
+    pub monthly_revenue: Vec<MonthlyRevenue>,
+}
+
+/// GET /api/farmers/:id/analytics
+pub async fn get_farmer_analytics(
+    State(state): State<SharedState>,
+    claims: Claims,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<AnalyticsResponse>> {
+    // Only the farmer themselves or an admin can view analytics
+    if claims.role == Role::Farmer && claims.farmer_id != Some(id) {
+        return Err(AppError::Forbidden("Access denied".into()));
+    }
+
+    // Total / completed / pending counts
+    let total_orders: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM orders WHERE seller_id = $1 AND status NOT IN ('cancelled')",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let completed_orders: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM orders WHERE seller_id = $1 AND status = 'confirmed'",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let pending_orders: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM orders WHERE seller_id = $1 AND status IN ('pending_payment', 'paid', 'processing', 'in_transit', 'delivered')",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+
+    // Revenue
+    let total_revenue_kes: Decimal = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(total_kes), 0) FROM orders WHERE seller_id = $1 AND status = 'confirmed'",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let total_revenue_sats: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(total_sats), 0) FROM orders WHERE seller_id = $1 AND status = 'confirmed'",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let avg_order_value_kes: Decimal = if completed_orders > 0 {
+        (total_revenue_kes / Decimal::from(completed_orders)).round_dp(2)
+    } else {
+        Decimal::ZERO
+    };
+
+    // Top 5 products by revenue
+    #[derive(FromRow)]
+    struct ProductStatRow {
+        product_id: Uuid,
+        title: String,
+        units_sold: Decimal,
+        revenue_kes: Decimal,
+        order_count: i64,
+    }
+    let top_product_rows: Vec<ProductStatRow> = sqlx::query_as(
+        "SELECT o.product_id, p.title,
+                COALESCE(SUM(o.quantity), 0) AS units_sold,
+                COALESCE(SUM(o.total_kes), 0) AS revenue_kes,
+                COUNT(*) AS order_count
+         FROM orders o
+         JOIN products p ON p.id = o.product_id
+         WHERE o.seller_id = $1 AND o.status = 'confirmed'
+         GROUP BY o.product_id, p.title
+         ORDER BY revenue_kes DESC
+         LIMIT 5",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let top_products = top_product_rows
+        .into_iter()
+        .map(|r| ProductStat {
+            product_id: r.product_id,
+            title: r.title,
+            units_sold: r.units_sold,
+            revenue_kes: r.revenue_kes,
+            order_count: r.order_count,
+        })
+        .collect();
+
+    // Last 10 orders
+    #[derive(FromRow)]
+    struct OrderSummaryRow {
+        id: Uuid,
+        product_title: String,
+        buyer_name: String,
+        quantity: Decimal,
+        unit: String,
+        total_kes: Decimal,
+        status: String,
+        created_at: DateTime<Utc>,
+    }
+    let recent_order_rows: Vec<OrderSummaryRow> = sqlx::query_as(
+        "SELECT o.id, p.title AS product_title, f.name AS buyer_name,
+                o.quantity, p.unit, o.total_kes, o.status, o.created_at
+         FROM orders o
+         JOIN products p ON p.id = o.product_id
+         JOIN farmers f ON f.id = o.buyer_id
+         WHERE o.seller_id = $1
+         ORDER BY o.created_at DESC
+         LIMIT 10",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let recent_orders = recent_order_rows
+        .into_iter()
+        .map(|r| OrderSummary {
+            id: r.id,
+            product_title: r.product_title,
+            buyer_name: r.buyer_name,
+            quantity: r.quantity,
+            unit: r.unit,
+            total_kes: r.total_kes,
+            status: r.status,
+            created_at: r.created_at,
+        })
+        .collect();
+
+    // Monthly revenue — last 6 months
+    #[derive(FromRow)]
+    struct MonthlyRow {
+        month: String,
+        revenue_kes: Decimal,
+        order_count: i64,
+    }
+    let monthly_rows: Vec<MonthlyRow> = sqlx::query_as(
+        "SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
+                COALESCE(SUM(total_kes), 0) AS revenue_kes,
+                COUNT(*) AS order_count
+         FROM orders
+         WHERE seller_id = $1
+           AND status = 'confirmed'
+           AND created_at >= NOW() - INTERVAL '6 months'
+         GROUP BY DATE_TRUNC('month', created_at)
+         ORDER BY DATE_TRUNC('month', created_at) DESC",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let monthly_revenue = monthly_rows
+        .into_iter()
+        .map(|r| MonthlyRevenue {
+            month: r.month,
+            revenue_kes: r.revenue_kes,
+            order_count: r.order_count,
+        })
+        .collect();
+
+    Ok(Json(AnalyticsResponse {
+        total_orders,
+        completed_orders,
+        pending_orders,
+        total_revenue_kes,
+        total_revenue_sats,
+        avg_order_value_kes,
+        top_products,
+        recent_orders,
+        monthly_revenue,
+    }))
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

@@ -157,6 +157,9 @@ fn can_transition(from: &str, to: &str, actor_is_seller: bool) -> bool {
         // Buyer confirms in-person (skips Lightning + delivery steps)
         ("pending_payment", "confirmed") if !actor_is_seller => true,
         ("paid", "confirmed") if !actor_is_seller => true,
+        // Seller completes POS order (both parties physically present)
+        ("pending_payment", "confirmed") if actor_is_seller => true,
+        ("paid", "confirmed") if actor_is_seller => true,
         // Either party can cancel pending orders
         ("pending_payment", "cancelled") => true,
         // Buyer can cancel before seller starts processing

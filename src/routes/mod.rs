@@ -4,6 +4,7 @@ use crate::oracle::handlers as oracle_handlers;
 use crate::orders::handlers as order_handlers;
 use crate::payments::handlers as payment_handlers;
 use crate::products::handlers as product_handlers;
+use crate::ratings::handlers as rating_handlers;
 use crate::state::SharedState;
 use axum::{
     routing::{delete, get, patch, post},
@@ -30,6 +31,14 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
             get(farmer_handlers::get_farmer)
                 .put(farmer_handlers::update_farmer)
                 .delete(farmer_handlers::delete_farmer),
+        )
+        .route(
+            "/farmers/:id/analytics",
+            get(farmer_handlers::get_farmer_analytics),
+        )
+        .route(
+            "/farmers/:id/ratings",
+            get(rating_handlers::get_seller_ratings).post(rating_handlers::rate_seller),
         );
 
     // ── Products ──────────────────────────────────────────────────────────────
@@ -48,6 +57,10 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route(
             "/products/:id/images/:image_id",
             delete(product_handlers::delete_image),
+        )
+        .route(
+            "/products/:id/ratings",
+            get(rating_handlers::get_product_ratings).post(rating_handlers::rate_product),
         );
 
     // ── Orders ────────────────────────────────────────────────────────────────

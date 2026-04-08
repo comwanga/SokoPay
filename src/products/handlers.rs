@@ -46,6 +46,8 @@ pub struct Product {
     pub status: String,
     pub location_name: String,
     pub images: Vec<ProductImage>,
+    pub avg_rating: Option<f64>,
+    pub rating_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -63,6 +65,8 @@ struct ProductRow {
     category: String,
     status: String,
     location_name: String,
+    avg_rating: Option<f64>,
+    rating_count: i64,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -102,6 +106,7 @@ pub struct ListProductsQuery {
     pub seller_id: Option<Uuid>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
+    pub sort: Option<String>,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -124,9 +129,16 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
         "SELECT p.id, p.seller_id, f.name AS seller_name,
                 p.title, p.description, p.price_kes, p.unit,
                 p.quantity_avail, p.category, p.status,
-                p.location_name, p.created_at, p.updated_at
+                p.location_name, p.created_at, p.updated_at,
+                pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
          FROM products p
          JOIN farmers f ON f.id = p.seller_id
+         LEFT JOIN (
+             SELECT product_id,
+                    AVG(rating)::float8 AS avg_rating,
+                    COUNT(*) AS rating_count
+             FROM product_ratings GROUP BY product_id
+         ) pr ON pr.product_id = p.id
          WHERE p.id = $1 AND p.status != 'deleted'",
     )
     .bind(product_id)
@@ -149,6 +161,8 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
         status: row.status,
         location_name: row.location_name,
         images,
+        avg_rating: row.avg_rating,
+        rating_count: row.rating_count,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
@@ -175,17 +189,31 @@ pub async fn list_products(
     let per_page = q.per_page.unwrap_or(20).clamp(1, 100);
     let offset = (page - 1) * per_page;
 
+    let rating_join = "LEFT JOIN (
+             SELECT product_id, AVG(rating)::float8 AS avg_rating, COUNT(*) AS rating_count
+             FROM product_ratings GROUP BY product_id
+         ) pr ON pr.product_id = p.id";
+
+    let order_by = if q.sort.as_deref() == Some("rating") {
+        "COALESCE(pr.avg_rating, 0) DESC, p.created_at DESC"
+    } else {
+        "p.created_at DESC"
+    };
+
     let rows: Vec<ProductRow> = match (q.category.as_deref(), q.seller_id) {
         (Some(cat), Some(sid)) => {
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 "SELECT p.id, p.seller_id, f.name AS seller_name,
                     p.title, p.description, p.price_kes, p.unit,
                     p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at
-             FROM products p JOIN farmers f ON f.id = p.seller_id
-             WHERE p.status = 'active' AND p.category = $1 AND p.seller_id = $2
-             ORDER BY p.created_at DESC LIMIT $3 OFFSET $4",
-            )
+                    p.location_name, p.created_at, p.updated_at,
+                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+                 FROM products p
+                 JOIN farmers f ON f.id = p.seller_id
+                 {rating_join}
+                 WHERE p.status = 'active' AND p.category = $1 AND p.seller_id = $2
+                 ORDER BY {order_by} LIMIT $3 OFFSET $4",
+            ))
             .bind(cat)
             .bind(sid)
             .bind(per_page)
@@ -195,15 +223,18 @@ pub async fn list_products(
         }
 
         (Some(cat), None) => {
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 "SELECT p.id, p.seller_id, f.name AS seller_name,
                     p.title, p.description, p.price_kes, p.unit,
                     p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at
-             FROM products p JOIN farmers f ON f.id = p.seller_id
-             WHERE p.status = 'active' AND p.category = $1
-             ORDER BY p.created_at DESC LIMIT $2 OFFSET $3",
-            )
+                    p.location_name, p.created_at, p.updated_at,
+                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+                 FROM products p
+                 JOIN farmers f ON f.id = p.seller_id
+                 {rating_join}
+                 WHERE p.status = 'active' AND p.category = $1
+                 ORDER BY {order_by} LIMIT $2 OFFSET $3",
+            ))
             .bind(cat)
             .bind(per_page)
             .bind(offset)
@@ -212,15 +243,18 @@ pub async fn list_products(
         }
 
         (None, Some(sid)) => {
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 "SELECT p.id, p.seller_id, f.name AS seller_name,
                     p.title, p.description, p.price_kes, p.unit,
                     p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at
-             FROM products p JOIN farmers f ON f.id = p.seller_id
-             WHERE p.status != 'deleted' AND p.seller_id = $1
-             ORDER BY p.created_at DESC LIMIT $2 OFFSET $3",
-            )
+                    p.location_name, p.created_at, p.updated_at,
+                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+                 FROM products p
+                 JOIN farmers f ON f.id = p.seller_id
+                 {rating_join}
+                 WHERE p.status != 'deleted' AND p.seller_id = $1
+                 ORDER BY {order_by} LIMIT $2 OFFSET $3",
+            ))
             .bind(sid)
             .bind(per_page)
             .bind(offset)
@@ -229,15 +263,18 @@ pub async fn list_products(
         }
 
         (None, None) => {
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 "SELECT p.id, p.seller_id, f.name AS seller_name,
                     p.title, p.description, p.price_kes, p.unit,
                     p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at
-             FROM products p JOIN farmers f ON f.id = p.seller_id
-             WHERE p.status = 'active'
-             ORDER BY p.created_at DESC LIMIT $1 OFFSET $2",
-            )
+                    p.location_name, p.created_at, p.updated_at,
+                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+                 FROM products p
+                 JOIN farmers f ON f.id = p.seller_id
+                 {rating_join}
+                 WHERE p.status = 'active'
+                 ORDER BY {order_by} LIMIT $1 OFFSET $2",
+            ))
             .bind(per_page)
             .bind(offset)
             .fetch_all(&state.db)
@@ -261,6 +298,8 @@ pub async fn list_products(
             status: row.status,
             location_name: row.location_name,
             images,
+            avg_rating: row.avg_rating,
+            rating_count: row.rating_count,
             created_at: row.created_at,
             updated_at: row.updated_at,
         });
