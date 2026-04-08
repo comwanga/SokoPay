@@ -408,7 +408,7 @@ pub async fn get_farmer_analytics(
     .await?;
 
     let total_revenue_sats: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(total_sats), 0) FROM orders WHERE seller_id = $1 AND status = 'confirmed'",
+        "SELECT COALESCE(SUM(total_sats), 0)::bigint FROM orders WHERE seller_id = $1 AND status = 'confirmed'",
     )
     .bind(id)
     .fetch_one(&state.db)
