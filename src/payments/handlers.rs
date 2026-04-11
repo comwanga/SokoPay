@@ -14,6 +14,9 @@ use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
 
+/// Payment invoice validity window.
+const INVOICE_EXPIRY_MINUTES: i64 = 15;
+
 // ── Response types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -24,6 +27,7 @@ pub struct PaymentRecord {
     pub amount_sats: i64,
     pub amount_kes: Decimal,
     pub status: String,
+    pub expires_at: Option<DateTime<Utc>>,
     pub settled_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
@@ -34,6 +38,9 @@ pub struct CreateInvoiceResponse {
     pub bolt11: String,
     pub amount_sats: i64,
     pub amount_kes: Decimal,
+    pub expires_at: DateTime<Utc>,
+    /// true when an existing non-expired invoice was returned instead of creating a new one
+    pub reused: bool,
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
@@ -52,7 +59,8 @@ pub struct ConfirmPaymentRequest {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Get or fetch the BTC/KES rate from the DB cache, falling back to live fetch.
+/// Get the BTC/KES rate from DB cache (KES row), falling back to a live fetch.
+/// Returns the KES rate as `Decimal` for sats conversion.
 async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
     #[derive(FromRow)]
     struct RateCacheEntry {
@@ -61,7 +69,10 @@ async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
     }
 
     let row: Option<RateCacheEntry> = sqlx::query_as(
-        "SELECT btc_kes, fetched_at FROM rate_cache ORDER BY fetched_at DESC LIMIT 1",
+        "SELECT btc_kes, fetched_at
+         FROM rate_cache
+         WHERE currency_code = 'KES'
+         ORDER BY fetched_at DESC LIMIT 1",
     )
     .fetch_optional(&state.db)
     .await?;
@@ -73,24 +84,42 @@ async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
         }
     }
 
-    let rate = state
+    // Cache miss — fetch all rates at once so the oracle cache is warm for
+    // subsequent requests to other currency endpoints
+    let rates = state
         .oracle
-        .fetch_rate()
+        .fetch_all_rates()
         .await
         .map_err(|e| AppError::Oracle(e.to_string()))?;
 
-    let btc_kes = Decimal::try_from(rate.btc_kes)
+    let btc_kes = Decimal::try_from(rates.btc_kes())
         .map(|d| d.round_dp(4))
         .map_err(|e| AppError::Internal(anyhow::anyhow!("rate conversion: {}", e)))?;
-    let btc_usd = Decimal::try_from(rate.btc_usd)
+    let btc_usd = Decimal::try_from(rates.btc_usd())
         .map(|d| d.round_dp(4))
         .map_err(|e| AppError::Internal(anyhow::anyhow!("rate conversion: {}", e)))?;
 
-    sqlx::query("INSERT INTO rate_cache (btc_kes, btc_usd) VALUES ($1, $2)")
-        .bind(btc_kes)
-        .bind(btc_usd)
-        .execute(&state.db)
-        .await?;
+    // Persist KES and USD rows (sufficient for payment handler)
+    let now = Utc::now();
+    sqlx::query(
+        "INSERT INTO rate_cache (btc_kes, btc_usd, currency_code, fetched_at) VALUES ($1, $2, 'KES', $3)",
+    )
+    .bind(btc_kes)
+    .bind(btc_usd)
+    .bind(now)
+    .execute(&state.db)
+    .await
+    .ok();
+
+    sqlx::query(
+        "INSERT INTO rate_cache (btc_kes, btc_usd, currency_code, fetched_at) VALUES ($1, $2, 'USD', $3)",
+    )
+    .bind(btc_usd)
+    .bind(btc_usd)
+    .bind(now)
+    .execute(&state.db)
+    .await
+    .ok();
 
     Ok(btc_kes)
 }
@@ -100,6 +129,9 @@ async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
 /// POST /api/payments/invoice
 /// Fetches the seller's Lightning Address, requests a bolt11 via LNURL-pay,
 /// and stores a pending payment record.
+///
+/// Idempotent: if a non-expired pending invoice already exists for this order,
+/// it is returned as-is (reused=true) without hitting the seller's LNURL endpoint again.
 pub async fn create_invoice(
     State(state): State<SharedState>,
     claims: Claims,
@@ -138,6 +170,38 @@ pub async fn create_invoice(
         )));
     }
 
+    // ── Idempotency check: return existing non-expired pending invoice ─────────
+    #[derive(FromRow)]
+    struct ExistingPayment {
+        id: Uuid,
+        bolt11: String,
+        amount_sats: i64,
+        expires_at: DateTime<Utc>,
+    }
+    let existing: Option<ExistingPayment> = sqlx::query_as(
+        "SELECT id, bolt11, amount_sats, expires_at
+         FROM payments
+         WHERE order_id = $1 AND status = 'pending' AND expires_at > NOW()
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(body.order_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if let Some(p) = existing {
+        return Ok((
+            StatusCode::OK,
+            Json(CreateInvoiceResponse {
+                payment_id: p.id,
+                bolt11: p.bolt11,
+                amount_sats: p.amount_sats,
+                amount_kes: order.total_kes,
+                expires_at: p.expires_at,
+                reused: true,
+            }),
+        ));
+    }
+
     // Fetch seller's Lightning Address
     let ln_address: Option<String> =
         sqlx::query_scalar("SELECT ln_address FROM farmers WHERE id = $1")
@@ -155,7 +219,7 @@ pub async fn create_invoice(
     // Get current exchange rate
     let btc_kes = get_or_fetch_rate(&state).await?;
 
-    // Convert KES to millisatoshis (sats * 1000)
+    // Convert KES to millisatoshis
     let sats_per_kes = Decimal::new(100_000_000, 0) / btc_kes;
     let amount_sats = (order.total_kes * sats_per_kes)
         .round()
@@ -172,15 +236,25 @@ pub async fn create_invoice(
     let amount_msats = amount_sats * 1000;
 
     // Request invoice from seller's wallet via LNURL-pay
-    let bolt11 = state
+    let invoice = state
         .lnurl
         .request_invoice(&ln_address, amount_msats)
         .await?;
 
-    // Store payment record
+    let bolt11 = invoice.bolt11.clone();
+    let expires_at = Utc::now() + chrono::Duration::minutes(INVOICE_EXPIRY_MINUTES);
+
+    // Serialise successAction metadata for audit log (non-critical)
+    let success_action_json = invoice
+        .success_action
+        .as_ref()
+        .map(|sa| serde_json::to_value(sa).unwrap_or(serde_json::Value::Null));
+
+    // Store payment record (partial unique index on order_id WHERE status='pending'
+    // prevents a race condition from creating two pending invoices simultaneously)
     let payment_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO payments (order_id, bolt11, amount_sats, amount_kes, rate_used)
-         VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO payments (order_id, bolt11, amount_sats, amount_kes, rate_used, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id",
     )
     .bind(body.order_id)
@@ -188,8 +262,23 @@ pub async fn create_invoice(
     .bind(amount_sats)
     .bind(order.total_kes)
     .bind(btc_kes)
+    .bind(expires_at)
     .fetch_one(&state.db)
     .await?;
+
+    // Log successAction in order events (best-effort, non-fatal)
+    if let Some(sa_json) = success_action_json {
+        crate::events::record_order_event(
+            &state.db,
+            body.order_id,
+            Some(buyer_id),
+            "invoice_created",
+            None,
+            serde_json::json!({ "payment_id": payment_id, "success_action": sa_json }),
+        )
+        .await
+        .ok();
+    }
 
     // Update order with computed sats amount
     sqlx::query("UPDATE orders SET total_sats = $2 WHERE id = $1")
@@ -205,6 +294,8 @@ pub async fn create_invoice(
             bolt11,
             amount_sats,
             amount_kes: order.total_kes,
+            expires_at,
+            reused: false,
         }),
     ))
 }
@@ -336,12 +427,13 @@ pub async fn get_payment_for_order(
         amount_sats: i64,
         amount_kes: Decimal,
         status: String,
+        expires_at: Option<DateTime<Utc>>,
         settled_at: Option<DateTime<Utc>>,
         created_at: DateTime<Utc>,
     }
 
     let row: Option<PaymentRow> = sqlx::query_as(
-        "SELECT id, order_id, bolt11, amount_sats, amount_kes, status, settled_at, created_at
+        "SELECT id, order_id, bolt11, amount_sats, amount_kes, status, expires_at, settled_at, created_at
          FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1",
     )
     .bind(order_id)
@@ -358,6 +450,7 @@ pub async fn get_payment_for_order(
         amount_sats: row.amount_sats,
         amount_kes: row.amount_kes,
         status: row.status,
+        expires_at: row.expires_at,
         settled_at: row.settled_at,
         created_at: row.created_at,
     }))

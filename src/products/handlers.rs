@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 const MAX_TITLE_LEN: usize = 200;
@@ -45,6 +46,10 @@ pub struct Product {
     pub category: String,
     pub status: String,
     pub location_name: String,
+    pub country_code: String,
+    pub currency_code: String,
+    pub ships_to: Vec<String>,
+    pub is_global: bool,
     pub images: Vec<ProductImage>,
     pub avg_rating: Option<f64>,
     pub rating_count: i64,
@@ -65,6 +70,10 @@ struct ProductRow {
     category: String,
     status: String,
     location_name: String,
+    country_code: String,
+    currency_code: String,
+    ships_to: Vec<String>,
+    is_global: bool,
     avg_rating: Option<f64>,
     rating_count: i64,
     created_at: DateTime<Utc>,
@@ -84,6 +93,10 @@ pub struct CreateProductRequest {
     pub location_name: Option<String>,
     pub location_lat: Option<f64>,
     pub location_lng: Option<f64>,
+    pub country_code: Option<String>,
+    pub currency_code: Option<String>,
+    pub ships_to: Option<Vec<String>>,
+    pub is_global: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,18 +111,56 @@ pub struct UpdateProductRequest {
     pub location_name: Option<String>,
     pub location_lat: Option<f64>,
     pub location_lng: Option<f64>,
+    pub country_code: Option<String>,
+    pub currency_code: Option<String>,
+    pub ships_to: Option<Vec<String>>,
+    pub is_global: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ListProductsQuery {
+    /// Full-text search query (PostgreSQL to_tsquery).
+    pub q: Option<String>,
+    /// Marketplace scope: "local" | "country" | "global" (default: "global").
+    pub scope: Option<String>,
+    /// ISO 3166-1 alpha-2 country filter (used when scope = "country").
+    pub country: Option<String>,
+    /// Filter to products that ship to this country code.
+    pub ships_to: Option<String>,
     pub category: Option<String>,
     pub seller_id: Option<Uuid>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
+    /// Sort: "rating" | "price_asc" | "price_desc" | "newest" (default).
     pub sort: Option<String>,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Batch-fetch images for a list of product IDs — O(1) query instead of O(n).
+async fn fetch_images_batch(
+    pool: &sqlx::PgPool,
+    product_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Vec<ProductImage>>, sqlx::Error> {
+    if product_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows: Vec<ProductImage> = sqlx::query_as(
+        "SELECT id, product_id, url, is_primary, sort_order, created_at
+         FROM product_images
+         WHERE product_id = ANY($1)
+         ORDER BY product_id, sort_order, created_at",
+    )
+    .bind(product_ids)
+    .fetch_all(pool)
+    .await?;
+
+    let mut map: HashMap<Uuid, Vec<ProductImage>> = HashMap::new();
+    for img in rows {
+        map.entry(img.product_id).or_default().push(img);
+    }
+    Ok(map)
+}
 
 async fn fetch_images(
     pool: &sqlx::PgPool,
@@ -129,7 +180,9 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
         "SELECT p.id, p.seller_id, f.name AS seller_name,
                 p.title, p.description, p.price_kes, p.unit,
                 p.quantity_avail, p.category, p.status,
-                p.location_name, p.created_at, p.updated_at,
+                p.location_name, p.country_code, p.currency_code,
+                p.ships_to, p.is_global,
+                p.created_at, p.updated_at,
                 pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
          FROM products p
          JOIN farmers f ON f.id = p.seller_id
@@ -148,7 +201,11 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
     let row = row.ok_or_else(|| AppError::NotFound(format!("Product {} not found", product_id)))?;
     let images = fetch_images(pool, row.id).await?;
 
-    Ok(Product {
+    Ok(row_to_product(row, images))
+}
+
+fn row_to_product(row: ProductRow, images: Vec<ProductImage>) -> Product {
+    Product {
         id: row.id,
         seller_id: row.seller_id,
         seller_name: row.seller_name,
@@ -160,14 +217,21 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
         category: row.category,
         status: row.status,
         location_name: row.location_name,
+        country_code: row.country_code,
+        currency_code: row.currency_code,
+        ships_to: row.ships_to,
+        is_global: row.is_global,
         images,
         avg_rating: row.avg_rating,
         rating_count: row.rating_count,
         created_at: row.created_at,
         updated_at: row.updated_at,
-    })
+    }
 }
 
+/// Map Content-Type header to file extension.
+/// Kept for reference only — actual file type is always determined from magic bytes.
+#[allow(dead_code)]
 fn content_type_to_ext(ct: &str) -> Option<&'static str> {
     match ct {
         "image/jpeg" | "image/jpg" => Some("jpg"),
@@ -178,9 +242,46 @@ fn content_type_to_ext(ct: &str) -> Option<&'static str> {
     }
 }
 
+/// Detect the actual image type from magic bytes and return its extension.
+///
+/// | Format | Magic bytes                                     |
+/// |--------|-------------------------------------------------|
+/// | JPEG   | FF D8 FF                                        |
+/// | PNG    | 89 50 4E 47 0D 0A 1A 0A                        |
+/// | GIF    | 47 49 46 38 (GIF8)                              |
+/// | WebP   | 52 49 46 46 __ __ __ __ 57 45 42 50 (RIFF…WEBP)|
+fn detect_image_ext(data: &[u8]) -> Option<&'static str> {
+    if data.len() < 4 {
+        return None;
+    }
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("jpg");
+    }
+    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("png");
+    }
+    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        return Some("gif");
+    }
+    if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12] == *b"WEBP" {
+        return Some("webp");
+    }
+    None
+}
+
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 /// GET /api/products
+///
+/// Query params:
+///   q        — full-text search (optional)
+///   scope    — "local" | "country" | "global" (default: "global")
+///   country  — ISO 3166-1 alpha-2 (used for scope=country)
+///   ships_to — filter to products that ship to this country
+///   category — category filter
+///   seller_id — seller UUID filter
+///   sort     — "rating" | "price_asc" | "price_desc" | "newest"
+///   page, per_page — pagination
 pub async fn list_products(
     State(state): State<SharedState>,
     Query(q): Query<ListProductsQuery>,
@@ -189,121 +290,90 @@ pub async fn list_products(
     let per_page = q.per_page.unwrap_or(20).clamp(1, 100);
     let offset = (page - 1) * per_page;
 
-    let rating_join = "LEFT JOIN (
-             SELECT product_id, AVG(rating)::float8 AS avg_rating, COUNT(*) AS rating_count
-             FROM product_ratings GROUP BY product_id
-         ) pr ON pr.product_id = p.id";
+    let scope = q.scope.as_deref().unwrap_or("global");
 
-    let order_by = if q.sort.as_deref() == Some("rating") {
-        "COALESCE(pr.avg_rating, 0) DESC, p.created_at DESC"
+    // Build ORDER BY clause
+    let order_by = match q.sort.as_deref() {
+        Some("rating") => "COALESCE(pr.avg_rating, 0) DESC, p.created_at DESC",
+        Some("price_asc") => "p.price_kes ASC",
+        Some("price_desc") => "p.price_kes DESC",
+        _ => "p.created_at DESC",
+    };
+
+    // Build the WHERE clause dynamically
+    // We use a parameterised query with all optional clauses baked in via
+    // SQL CASE/coalesce guards so we stay safe against injection.
+    let search_clause = if q.q.is_some() {
+        "AND p.search_vector @@ plainto_tsquery('english', $7)"
     } else {
-        "p.created_at DESC"
+        "AND ($7::text IS NULL)"
     };
 
-    let rows: Vec<ProductRow> = match (q.category.as_deref(), q.seller_id) {
-        (Some(cat), Some(sid)) => {
-            sqlx::query_as(&format!(
-                "SELECT p.id, p.seller_id, f.name AS seller_name,
-                    p.title, p.description, p.price_kes, p.unit,
-                    p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at,
-                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
-                 FROM products p
-                 JOIN farmers f ON f.id = p.seller_id
-                 {rating_join}
-                 WHERE p.status = 'active' AND p.category = $1 AND p.seller_id = $2
-                 ORDER BY {order_by} LIMIT $3 OFFSET $4",
-            ))
-            .bind(cat)
-            .bind(sid)
-            .bind(per_page)
-            .bind(offset)
-            .fetch_all(&state.db)
-            .await?
-        }
-
-        (Some(cat), None) => {
-            sqlx::query_as(&format!(
-                "SELECT p.id, p.seller_id, f.name AS seller_name,
-                    p.title, p.description, p.price_kes, p.unit,
-                    p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at,
-                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
-                 FROM products p
-                 JOIN farmers f ON f.id = p.seller_id
-                 {rating_join}
-                 WHERE p.status = 'active' AND p.category = $1
-                 ORDER BY {order_by} LIMIT $2 OFFSET $3",
-            ))
-            .bind(cat)
-            .bind(per_page)
-            .bind(offset)
-            .fetch_all(&state.db)
-            .await?
-        }
-
-        (None, Some(sid)) => {
-            sqlx::query_as(&format!(
-                "SELECT p.id, p.seller_id, f.name AS seller_name,
-                    p.title, p.description, p.price_kes, p.unit,
-                    p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at,
-                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
-                 FROM products p
-                 JOIN farmers f ON f.id = p.seller_id
-                 {rating_join}
-                 WHERE p.status != 'deleted' AND p.seller_id = $1
-                 ORDER BY {order_by} LIMIT $2 OFFSET $3",
-            ))
-            .bind(sid)
-            .bind(per_page)
-            .bind(offset)
-            .fetch_all(&state.db)
-            .await?
-        }
-
-        (None, None) => {
-            sqlx::query_as(&format!(
-                "SELECT p.id, p.seller_id, f.name AS seller_name,
-                    p.title, p.description, p.price_kes, p.unit,
-                    p.quantity_avail, p.category, p.status,
-                    p.location_name, p.created_at, p.updated_at,
-                    pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
-                 FROM products p
-                 JOIN farmers f ON f.id = p.seller_id
-                 {rating_join}
-                 WHERE p.status = 'active'
-                 ORDER BY {order_by} LIMIT $1 OFFSET $2",
-            ))
-            .bind(per_page)
-            .bind(offset)
-            .fetch_all(&state.db)
-            .await?
-        }
+    let country_clause = match scope {
+        "local" | "country" => "AND p.country_code = COALESCE($8, p.country_code)",
+        _ => "AND ($8::text IS NULL OR p.country_code = $8 OR p.is_global = TRUE)",
     };
 
-    let mut products = Vec::with_capacity(rows.len());
-    for row in rows {
-        let images = fetch_images(&state.db, row.id).await?;
-        products.push(Product {
-            id: row.id,
-            seller_id: row.seller_id,
-            seller_name: row.seller_name,
-            title: row.title,
-            description: row.description,
-            price_kes: row.price_kes,
-            unit: row.unit,
-            quantity_avail: row.quantity_avail,
-            category: row.category,
-            status: row.status,
-            location_name: row.location_name,
-            images,
-            avg_rating: row.avg_rating,
-            rating_count: row.rating_count,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        });
-    }
+    let ships_to_clause = if q.ships_to.is_some() {
+        "AND $9 = ANY(p.ships_to)"
+    } else {
+        "AND ($9::text IS NULL)"
+    };
+
+    let base_select = "
+        SELECT p.id, p.seller_id, f.name AS seller_name,
+               p.title, p.description, p.price_kes, p.unit,
+               p.quantity_avail, p.category, p.status,
+               p.location_name, p.country_code, p.currency_code,
+               p.ships_to, p.is_global,
+               p.created_at, p.updated_at,
+               pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+        FROM products p
+        JOIN farmers f ON f.id = p.seller_id
+        LEFT JOIN (
+            SELECT product_id, AVG(rating)::float8 AS avg_rating, COUNT(*) AS rating_count
+            FROM product_ratings GROUP BY product_id
+        ) pr ON pr.product_id = p.id";
+
+    let sql = format!(
+        "{base_select}
+         WHERE p.status = 'active'
+           AND ($1::text IS NULL OR p.category = $1)
+           AND ($2::uuid IS NULL OR p.seller_id = $2)
+           {country_clause}
+           {ships_to_clause}
+           {search_clause}
+         ORDER BY {order_by}
+         LIMIT $5 OFFSET $6",
+    );
+
+    // $1=category, $2=seller_id, $3=<unused slot>, $4=<unused slot>,
+    // $5=per_page, $6=offset, $7=search_query, $8=country, $9=ships_to
+    // Note: we bind them positionally.
+    let rows: Vec<ProductRow> = sqlx::query_as(&sql)
+        .bind(q.category.as_deref())
+        .bind(q.seller_id)
+        .bind(Option::<String>::None) // $3 placeholder
+        .bind(Option::<String>::None) // $4 placeholder
+        .bind(per_page)
+        .bind(offset)
+        .bind(q.q.as_deref())
+        .bind(q.country.as_deref())
+        .bind(q.ships_to.as_deref())
+        .fetch_all(&state.db)
+        .await?;
+
+    // Batch-fetch all images in a single query (fixes N+1)
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let mut images_map = fetch_images_batch(&state.db, &ids).await?;
+
+    let products = rows
+        .into_iter()
+        .map(|row| {
+            let images = images_map.remove(&row.id).unwrap_or_default();
+            row_to_product(row, images)
+        })
+        .collect();
 
     Ok(Json(products))
 }
@@ -383,11 +453,39 @@ pub async fn create_product(
         )));
     }
 
+    let country_code = body
+        .country_code
+        .as_deref()
+        .unwrap_or("KE")
+        .to_uppercase();
+    if country_code.len() != 2 {
+        return Err(AppError::BadRequest(
+            "country_code must be a 2-letter ISO 3166-1 alpha-2 code".into(),
+        ));
+    }
+
+    let currency_code = body
+        .currency_code
+        .as_deref()
+        .unwrap_or("KES")
+        .to_uppercase();
+    if currency_code.len() != 3 {
+        return Err(AppError::BadRequest(
+            "currency_code must be a 3-letter ISO 4217 code".into(),
+        ));
+    }
+
+    let ships_to = body
+        .ships_to
+        .unwrap_or_else(|| vec![country_code.clone()]);
+    let is_global = body.is_global.unwrap_or(false);
+
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO products
              (seller_id, title, description, price_kes, unit, quantity_avail,
-              category, location_name, location_lat, location_lng)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+              category, location_name, location_lat, location_lng,
+              country_code, currency_code, ships_to, is_global)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING id",
     )
     .bind(seller_id)
@@ -400,6 +498,10 @@ pub async fn create_product(
     .bind(&location_name)
     .bind(body.location_lat)
     .bind(body.location_lng)
+    .bind(&country_code)
+    .bind(&currency_code)
+    .bind(&ships_to)
+    .bind(is_global)
     .fetch_one(&state.db)
     .await?;
 
@@ -418,7 +520,6 @@ pub async fn update_product(
         .farmer_id
         .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
 
-    // Verify ownership
     let owner: Option<Uuid> =
         sqlx::query_scalar("SELECT seller_id FROM products WHERE id = $1 AND status != 'deleted'")
             .bind(id)
@@ -433,7 +534,6 @@ pub async fn update_product(
         ));
     }
 
-    // Validate fields if provided
     if let Some(ref title) = body.title {
         let t = title.trim();
         if t.is_empty() {
@@ -485,7 +585,11 @@ pub async fn update_product(
             status         = COALESCE($8, status),
             location_name  = COALESCE($9, location_name),
             location_lat   = COALESCE($10, location_lat),
-            location_lng   = COALESCE($11, location_lng)
+            location_lng   = COALESCE($11, location_lng),
+            country_code   = COALESCE($12, country_code),
+            currency_code  = COALESCE($13, currency_code),
+            ships_to       = COALESCE($14, ships_to),
+            is_global      = COALESCE($15, is_global)
          WHERE id = $1",
     )
     .bind(id)
@@ -499,6 +603,10 @@ pub async fn update_product(
     .bind(body.location_name.as_deref().map(str::trim))
     .bind(body.location_lat)
     .bind(body.location_lng)
+    .bind(body.country_code.as_deref())
+    .bind(body.currency_code.as_deref())
+    .bind(body.ships_to.as_deref())
+    .bind(body.is_global)
     .execute(&state.db)
     .await?;
 
@@ -538,7 +646,6 @@ pub async fn delete_product(
 }
 
 /// POST /api/products/:id/images
-/// Accepts multipart/form-data with a single field named "image".
 pub async fn upload_image(
     State(state): State<SharedState>,
     claims: Claims,
@@ -549,7 +656,6 @@ pub async fn upload_image(
         .farmer_id
         .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
 
-    // Verify ownership
     let owner: Option<Uuid> =
         sqlx::query_scalar("SELECT seller_id FROM products WHERE id = $1 AND status != 'deleted'")
             .bind(product_id)
@@ -565,7 +671,6 @@ pub async fn upload_image(
         ));
     }
 
-    // Enforce max images per product
     let image_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM product_images WHERE product_id = $1")
             .bind(product_id)
@@ -579,27 +684,26 @@ pub async fn upload_image(
         )));
     }
 
-    // Read the first field from the multipart body
     let field = multipart
         .next_field()
         .await
         .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
         .ok_or_else(|| AppError::BadRequest("No file field found in request".into()))?;
 
-    let content_type = field
+    let declared_ct = field
         .content_type()
         .unwrap_or("application/octet-stream")
         .to_string();
 
-    let ext = content_type_to_ext(&content_type)
-        .ok_or_else(|| AppError::BadRequest(format!("Unsupported image type: {}", content_type)))?;
-
-    // Collect bytes with size limit
+    // Collect bytes before MIME detection
     let data = field
         .bytes()
         .await
         .map_err(|e| AppError::BadRequest(format!("Failed to read file: {}", e)))?;
 
+    if data.is_empty() {
+        return Err(AppError::BadRequest("Empty file received".into()));
+    }
     if data.len() > MAX_IMAGE_BYTES {
         return Err(AppError::BadRequest(format!(
             "Image exceeds maximum size of {} MB",
@@ -607,11 +711,15 @@ pub async fn upload_image(
         )));
     }
 
-    if data.is_empty() {
-        return Err(AppError::BadRequest("Empty file received".into()));
-    }
+    // Magic-byte MIME validation — do NOT trust Content-Type header
+    let ext = detect_image_ext(&data).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "File is not a recognised image format (declared: {}). \
+             Only JPEG, PNG, WebP and GIF are accepted.",
+            declared_ct
+        ))
+    })?;
 
-    // Build storage path
     let file_name = format!("{}_{}.{}", product_id, Uuid::new_v4(), ext);
     let storage_key = file_name.clone();
     let file_path = format!("{}/{}", state.config.upload_dir, file_name);
@@ -621,7 +729,6 @@ pub async fn upload_image(
         .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to save image: {}", e)))?;
 
-    // First image becomes primary automatically
     let is_primary = image_count == 0;
 
     let image: ProductImage = sqlx::query_as(
@@ -650,7 +757,6 @@ pub async fn delete_image(
         .farmer_id
         .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
 
-    // Verify product ownership
     let owner: Option<Uuid> =
         sqlx::query_scalar("SELECT seller_id FROM products WHERE id = $1 AND status != 'deleted'")
             .bind(product_id)
@@ -666,7 +772,6 @@ pub async fn delete_image(
         ));
     }
 
-    // Get storage key before deleting
     #[derive(FromRow)]
     struct ImageRow {
         storage_key: String,
@@ -680,13 +785,11 @@ pub async fn delete_image(
 
     let img = img.ok_or_else(|| AppError::NotFound(format!("Image {} not found", image_id)))?;
 
-    // Delete the DB record
     sqlx::query("DELETE FROM product_images WHERE id = $1")
         .bind(image_id)
         .execute(&state.db)
         .await?;
 
-    // Remove file from disk (non-fatal if it fails)
     let file_path = format!("{}/{}", state.config.upload_dir, img.storage_key);
     if let Err(e) = tokio::fs::remove_file(&file_path).await {
         tracing::warn!("Could not delete image file {}: {}", file_path, e);

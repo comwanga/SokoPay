@@ -451,15 +451,21 @@ mod tests {
     async fn test_payment_hash_uniqueness_enforced(pool: PgPool) {
         let seller = insert_farmer(&pool, "Alice").await;
         let buyer = insert_farmer(&pool, "Bob").await;
-        let product_id = insert_product(&pool, seller, "Maize", dec!(500.00), dec!(10.0)).await;
-        let order_id =
-            insert_order(&pool, product_id, seller, buyer, dec!(2.0), dec!(500.00)).await;
 
-        let p1 = insert_payment(&pool, order_id, 3333).await;
-        let p2 = insert_payment(&pool, order_id, 3333).await;
+        // Two separate products and orders — one payment per order — so we
+        // don't hit the partial unique index on (order_id) WHERE status='pending'.
+        // This test is only checking that the payment_hash UNIQUE constraint fires.
+        let product1 = insert_product(&pool, seller, "Maize", dec!(500.00), dec!(10.0)).await;
+        let product2 = insert_product(&pool, seller, "Wheat", dec!(400.00), dec!(5.0)).await;
+        let order1 = insert_order(&pool, product1, seller, buyer, dec!(2.0), dec!(500.00)).await;
+        let order2 = insert_order(&pool, product2, seller, buyer, dec!(1.0), dec!(400.00)).await;
 
-        let hash = "a".repeat(63) + "b"; // 64 hex chars
+        let p1 = insert_payment(&pool, order1, 3333).await;
+        let p2 = insert_payment(&pool, order2, 4444).await;
 
+        let hash = "a".repeat(63) + "b"; // 64-char hex string
+
+        // Set the same payment_hash on both payments — second one must fail
         sqlx::query("UPDATE payments SET payment_hash = $2 WHERE id = $1")
             .bind(p1)
             .bind(&hash)

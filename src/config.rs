@@ -32,6 +32,14 @@ pub struct Config {
     pub allowed_origins: Vec<String>,
     // Observability
     pub log_format: String,
+    // BTCPay Server (optional — enables platform-hosted Lightning Addresses)
+    pub btcpay_url: Option<String>,
+    pub btcpay_api_key: Option<String>,
+    pub btcpay_store_id: Option<String>,
+    pub btcpay_webhook_secret: Option<String>,
+    // Nostr relay (optional — enables order-status DM notifications)
+    pub nostr_relay_url: Option<String>,
+    pub nostr_privkey_hex: Option<String>,
 }
 
 impl Config {
@@ -91,6 +99,16 @@ impl Config {
                 .unwrap_or_else(|_| "http://localhost:3001".into()),
             allowed_origins,
             log_format: std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into()),
+            btcpay_url: std::env::var("BTCPAY_URL").ok().filter(|s| !s.is_empty()),
+            btcpay_api_key: std::env::var("BTCPAY_API_KEY").ok().filter(|s| !s.is_empty()),
+            btcpay_store_id: std::env::var("BTCPAY_STORE_ID").ok().filter(|s| !s.is_empty()),
+            btcpay_webhook_secret: std::env::var("BTCPAY_WEBHOOK_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            nostr_relay_url: std::env::var("NOSTR_RELAY_URL").ok().filter(|s| !s.is_empty()),
+            nostr_privkey_hex: std::env::var("NOSTR_PRIVKEY_HEX")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 }

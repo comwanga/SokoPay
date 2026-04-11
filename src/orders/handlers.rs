@@ -1,6 +1,7 @@
 use crate::auth::jwt::{Claims, Role};
 use crate::error::{AppError, AppResult};
 use crate::events;
+use crate::notifications::nostr_dm;
 use crate::state::SharedState;
 use axum::{
     extract::{Path, Query, State},
@@ -494,6 +495,46 @@ pub async fn update_order_status(
         .bind(id)
         .fetch_one(&state.db)
         .await?;
+
+    // Send a Nostr DM to the other party so they know the order changed.
+    // We notify:
+    //   - the buyer when the seller advances the order (processing, in_transit, delivered)
+    //   - the seller when the buyer confirms/disputes/cancels
+    // This is fire-and-forget; if the relay is unavailable the order still succeeds.
+    {
+        // Figure out who to notify (the party that did NOT make this change)
+        let notify_pubkey: Option<String> = if actor_is_seller {
+            // Seller made the change → notify buyer
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT nostr_pubkey FROM farmers WHERE id = $1",
+            )
+            .bind(order.buyer_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+        } else {
+            // Buyer made the change → notify seller
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT nostr_pubkey FROM farmers WHERE id = $1",
+            )
+            .bind(order.seller_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+        };
+
+        if let Some(pubkey) = notify_pubkey {
+            let msg = nostr_dm::status_message(&body.status, &order.product_title, id);
+            let config = state.config.clone();
+            tokio::spawn(async move {
+                nostr_dm::send_dm(&config, &pubkey, &msg).await;
+            });
+        }
+    }
 
     Ok(Json(order.into()))
 }

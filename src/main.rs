@@ -1,10 +1,12 @@
 mod auth;
 mod config;
 mod db;
+mod disputes;
 mod error;
 mod events;
 mod farmers;
 mod lnurl;
+mod notifications;
 mod oracle;
 mod orders;
 mod payments;
@@ -12,6 +14,7 @@ mod products;
 mod ratings;
 mod routes;
 mod state;
+mod workers;
 
 use anyhow::Result;
 use axum::{
@@ -25,7 +28,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::Config;
-use crate::lnurl::LnurlClient;
+use crate::lnurl::{server as lnurl_server, LnurlClient};
 use crate::oracle::RateOracle;
 use crate::state::AppState;
 use reqwest::Client;
@@ -58,6 +61,7 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(&config.upload_dir).await?;
     tracing::info!("Upload directory: {}", config.upload_dir);
 
+
     // ── Shared HTTP client ────────────────────────────────────────────────────
     let http = Client::builder()
         .use_rustls_tls()
@@ -74,17 +78,27 @@ async fn main() -> Result<()> {
     let lnurl = LnurlClient::new(http.clone());
 
     let state = Arc::new(AppState {
-        db: pool,
+        db: pool.clone(),
         config: config.clone(),
         oracle,
         lnurl,
     });
 
+    // ── Background workers ────────────────────────────────────────────────────
+    tokio::spawn(workers::payment_expiry::run(pool.clone()));
+    tracing::info!("Payment expiry worker started (poll interval: 60s)");
+
     // ── CORS ──────────────────────────────────────────────────────────────────
     let cors = build_cors(&config);
 
     // ── Router ────────────────────────────────────────────────────────────────
+    // /.well-known/lnurlp/{slug} is mounted at root (not under /api)
+    // as required by the LNURL-pay spec (LUD-06).
     let app = Router::new()
+        .route(
+            "/.well-known/lnurlp/:slug",
+            axum::routing::get(lnurl_server::lnurlp_descriptor),
+        )
         .nest("/api", routes::router(state.clone()))
         .nest_service("/uploads", ServeDir::new(&config.upload_dir))
         .layer(cors)

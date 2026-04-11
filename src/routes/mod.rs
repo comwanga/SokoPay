@@ -1,5 +1,7 @@
 use crate::auth;
+use crate::disputes::handlers as dispute_handlers;
 use crate::farmers::handlers as farmer_handlers;
+use crate::lnurl::server as lnurl_server;
 use crate::oracle::handlers as oracle_handlers;
 use crate::orders::handlers as order_handlers;
 use crate::payments::handlers as payment_handlers;
@@ -10,9 +12,37 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
+use std::sync::Arc;
 use tower::limit::ConcurrencyLimitLayer;
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+};
 
 pub fn router(_state: SharedState) -> Router<SharedState> {
+    // ── Rate-limiter configs ──────────────────────────────────────────────────
+    //
+    // invoice_governor: POST /payments/invoice hits an external LNURL endpoint
+    // for each request — 2 req/s burst 5 per IP to prevent abuse.
+    let invoice_governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(2)
+            .burst_size(5)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .expect("invoice governor config"),
+    );
+
+    // global_governor: lightweight limit on all other API routes — 30 req/s
+    // burst 60 per IP to stop trivial scrapers without affecting legit users.
+    let global_governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(30)
+            .burst_size(60)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .expect("global governor config"),
+    );
+
     // ── Auth ─────────────────────────────────────────────────────────────────
     let auth_routes = Router::new()
         .route("/auth/login", post(auth::login))
@@ -20,7 +50,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route("/auth/pubkey", post(auth::pubkey_login))
         .route("/auth/register", post(auth::register));
 
-    // ── Farmers (users/profiles) ──────────────────────────────────────────────
+    // ── Farmers ───────────────────────────────────────────────────────────────
     let farmer_routes = Router::new()
         .route(
             "/farmers",
@@ -76,13 +106,48 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         )
         .route("/orders/:id", delete(order_handlers::cancel_order));
 
-    // ── Payments (non-custodial) ──────────────────────────────────────────────
-    let payment_routes = Router::new()
+    // ── Payments — tight rate limit (calls external LNURL endpoint) ───────────
+    let payment_invoice_route = Router::new()
         .route("/payments/invoice", post(payment_handlers::create_invoice))
+        .layer(GovernorLayer {
+            config: invoice_governor_conf,
+        });
+
+    let payment_other_routes = Router::new()
         .route("/payments/confirm", post(payment_handlers::confirm_payment))
         .route(
             "/payments/order/:order_id",
             get(payment_handlers::get_payment_for_order),
+        );
+
+    // ── LNURL-pay server + BTCPay webhook ────────────────────────────────────
+    let lnurl_routes = Router::new()
+        .route(
+            "/lnurl/pay/:slug/callback",
+            get(lnurl_server::lnurlp_callback),
+        )
+        .route(
+            "/webhooks/btcpay",
+            post(lnurl_server::btcpay_webhook),
+        );
+
+    // ── Disputes ──────────────────────────────────────────────────────────────
+    let dispute_routes = Router::new()
+        .route(
+            "/orders/:id/dispute",
+            post(dispute_handlers::open_dispute),
+        )
+        .route(
+            "/orders/:id/dispute/evidence",
+            get(dispute_handlers::get_evidence).post(dispute_handlers::add_evidence),
+        )
+        .route(
+            "/admin/disputes",
+            get(dispute_handlers::list_open_disputes),
+        )
+        .route(
+            "/admin/disputes/:order_id/resolve",
+            patch(dispute_handlers::resolve_dispute),
         );
 
     // ── Oracle ────────────────────────────────────────────────────────────────
@@ -91,14 +156,21 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
     // ── Health ────────────────────────────────────────────────────────────────
     let health_route = Router::new().route("/health", get(health));
 
+    // ── Assemble with global rate limit + concurrency cap ────────────────────
     Router::new()
         .merge(auth_routes)
         .merge(farmer_routes)
         .merge(product_routes)
         .merge(order_routes)
-        .merge(payment_routes)
+        .merge(payment_invoice_route)
+        .merge(payment_other_routes)
+        .merge(lnurl_routes)
+        .merge(dispute_routes)
         .merge(oracle_routes)
         .merge(health_route)
+        .layer(GovernorLayer {
+            config: global_governor_conf,
+        })
         .layer(ConcurrencyLimitLayer::new(200))
 }
 
