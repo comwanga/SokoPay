@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
-import { AlertCircle, RefreshCw, Eye, EyeOff, X, Zap } from 'lucide-react'
-import { pubkeyAuth, nostrLoginWithKey, setLocalSecretKey } from '../api/client.ts'
+import { AlertCircle, RefreshCw, Eye, EyeOff, X, Zap, Lock } from 'lucide-react'
+import { pubkeyAuth, nostrLoginWithKey, setLocalSecretKey, login } from '../api/client.ts'
 
 interface Props {
   onSuccess: () => void
   onCancel: () => void
 }
 
-type Tab = 'pubkey' | 'generate'
+type Tab = 'pubkey' | 'generate' | 'password'
 
 function makeKey() {
   const sk = generateSecretKey()
@@ -29,6 +29,13 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
   const [pubkeyInput, setPubkeyInput] = useState('')
   const [pubkeyError, setPubkeyError] = useState<string | null>(null)
   const [pubkeyLoading, setPubkeyLoading] = useState(false)
+
+  // ── "Username/password" state ───────────────────────────────────────────────
+  const [pwUsername, setPwUsername] = useState('')
+  const [pwPassword, setPwPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
+  const [pwError, setPwError] = useState<string | null>(null)
+  const [pwLoading, setPwLoading] = useState(false)
 
   // ── "New identity" state ────────────────────────────────────────────────────
   const [genKey, setGenKey] = useState(() => makeKey())
@@ -79,6 +86,23 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
     }
   }
 
+  async function handlePasswordLogin() {
+    setPwError(null)
+    if (!pwUsername.trim() || !pwPassword) {
+      setPwError('Username and password are required.')
+      return
+    }
+    setPwLoading(true)
+    try {
+      await login({ username: pwUsername.trim(), password: pwPassword })
+      onSuccess()
+    } catch (e) {
+      setPwError(e instanceof Error ? e.message : 'Login failed')
+    } finally {
+      setPwLoading(false)
+    }
+  }
+
   async function handleGenerateLogin() {
     setGenError(null)
     setGenLoading(true)
@@ -102,7 +126,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
         {/* Header */}
         <div className="flex items-start justify-between p-5 pb-0">
           <div>
-            <h2 className="text-base font-bold text-gray-100">Connect with Nostr</h2>
+            <h2 className="text-base font-bold text-gray-100">Sign in to AgriPay</h2>
             <p className="text-xs text-gray-500 mt-0.5">Your identity on AgriPay</p>
           </div>
           <button
@@ -124,8 +148,9 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-800 rounded-lg p-1 mx-5 mt-4">
           {([
-            ['pubkey', 'I have a key'],
+            ['pubkey', 'Nostr key'],
             ['generate', 'New identity'],
+            ['password', 'Password'],
           ] as [Tab, string][]).map(([t, label]) => (
             <button
               key={t}
@@ -188,6 +213,67 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
                 >
                   Generate one →
                 </button>
+              </p>
+            </>
+          )}
+
+          {/* ── Tab: Username / Password ──────────────────────────────── */}
+          {tab === 'password' && (
+            <>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-400">Username</label>
+                <input
+                  type="text"
+                  placeholder="your-username"
+                  value={pwUsername}
+                  onChange={e => { setPwUsername(e.target.value); setPwError(null) }}
+                  onKeyDown={e => e.key === 'Enter' && handlePasswordLogin()}
+                  className="input-base text-xs"
+                  autoComplete="username"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-400">Password</label>
+                <div className="relative">
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={pwPassword}
+                    onChange={e => { setPwPassword(e.target.value); setPwError(null) }}
+                    onKeyDown={e => e.key === 'Enter' && handlePasswordLogin()}
+                    className="input-base text-xs pr-8 w-full"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  >
+                    {showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {pwError && (
+                <div className="flex gap-2 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-400">{pwError}</p>
+                </div>
+              )}
+
+              <button
+                onClick={handlePasswordLogin}
+                disabled={pwLoading}
+                className="btn-primary w-full justify-center"
+              >
+                <Lock className="w-4 h-4" />
+                {pwLoading ? 'Signing in…' : 'Sign in'}
+              </button>
+
+              <p className="text-[11px] text-gray-600 text-center">
+                Credentials are assigned by an admin. Contact your co-op administrator
+                if you don't have an account.
               </p>
             </>
           )}

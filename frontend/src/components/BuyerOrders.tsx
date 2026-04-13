@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Package, ChevronDown, ChevronUp, ThumbsUp, AlertTriangle,
-  XCircle, Zap, QrCode, Copy, Check, CheckCircle,
+  XCircle, Zap, QrCode, Copy, Check, CheckCircle, FileText, Send,
 } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import {
   listOrders, updateOrderStatus, cancelOrder, createInvoice, confirmPayment,
   payWithWebLN, hasWebLN, formatKes, formatSats, ORDER_STATUS_LABELS,
+  openDispute, getDisputeEvidence, addDisputeEvidence,
 } from '../api/client.ts'
 
 import OrderStatusSteps from './OrderStatusSteps.tsx'
@@ -173,14 +174,166 @@ function PayPanel({ order, onPaid }: { order: Order; onPaid: () => void }) {
 
 // ── Order card ────────────────────────────────────────────────────────────────
 
+// ── Dispute panel ─────────────────────────────────────────────────────────────
+
+function DisputePanel({ order, onDone }: { order: Order; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const qc = useQueryClient()
+
+  const dispute = useMutation({
+    mutationFn: () => openDispute(order.id, reason.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orders', 'buyer'] })
+      onDone()
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  return (
+    <div className="space-y-3 bg-yellow-900/10 border border-yellow-700/30 rounded-xl p-4">
+      <p className="text-xs font-semibold text-yellow-400 flex items-center gap-1.5">
+        <AlertTriangle className="w-3.5 h-3.5" />
+        Open a Dispute
+      </p>
+      <p className="text-[11px] text-gray-400 leading-relaxed">
+        Describe what went wrong. An admin will review your case and the seller's response
+        within 24 hours.
+      </p>
+      <textarea
+        value={reason}
+        onChange={e => { setReason(e.target.value); setError(null) }}
+        placeholder="e.g. Goods arrived damaged, quantity was short by 5 kg…"
+        rows={3}
+        className="input-base text-xs w-full resize-none"
+        maxLength={1000}
+      />
+      <p className="text-[10px] text-gray-600 text-right">{reason.length}/1000</p>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex gap-2">
+        <button onClick={onDone} className="btn-secondary text-xs flex-1 justify-center">
+          Cancel
+        </button>
+        <button
+          onClick={() => dispute.mutate()}
+          disabled={dispute.isPending || reason.trim().length < 10}
+          className="btn-danger text-xs flex-1 justify-center"
+        >
+          {dispute.isPending ? 'Submitting…' : 'Submit Dispute'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Evidence panel (shown when order is already disputed) ─────────────────────
+
+function EvidencePanel({ orderId }: { orderId: string }) {
+  const [kind, setKind] = useState<'text' | 'url'>('text')
+  const [content, setContent] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const qc = useQueryClient()
+
+  const { data: evidence = [] } = useQuery({
+    queryKey: ['dispute-evidence', orderId],
+    queryFn: () => getDisputeEvidence(orderId),
+    staleTime: 30_000,
+  })
+
+  const addEvidence = useMutation({
+    mutationFn: () => addDisputeEvidence(orderId, { kind, content: content.trim() }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dispute-evidence', orderId] })
+      setContent('')
+      setError(null)
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  return (
+    <div className="space-y-3 bg-yellow-900/10 border border-yellow-700/30 rounded-xl p-4">
+      <p className="text-xs font-semibold text-yellow-400 flex items-center gap-1.5">
+        <FileText className="w-3.5 h-3.5" />
+        Dispute Evidence
+      </p>
+
+      {evidence.length === 0 ? (
+        <p className="text-[11px] text-gray-500">No evidence submitted yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {evidence.map(e => (
+            <li key={e.id} className="bg-gray-800/60 rounded-lg px-3 py-2 text-xs text-gray-300">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase mr-2">{e.kind}</span>
+              {e.kind === 'url'
+                ? <a href={e.content} target="_blank" rel="noreferrer" className="text-brand-400 underline break-all">{e.content}</a>
+                : <span className="break-words">{e.content}</span>
+              }
+              <span className="block text-[10px] text-gray-600 mt-0.5">
+                {new Date(e.created_at).toLocaleString('en-KE')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="space-y-2 border-t border-yellow-700/20 pt-3">
+        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Add Evidence</p>
+        <div className="flex gap-1">
+          {(['text', 'url'] as const).map(k => (
+            <button
+              key={k}
+              onClick={() => setKind(k)}
+              className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${
+                kind === k ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {k === 'text' ? 'Text note' : 'URL / Link'}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          {kind === 'text' ? (
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="Describe what you observed…"
+              rows={2}
+              className="input-base text-xs flex-1 resize-none"
+              maxLength={5000}
+            />
+          ) : (
+            <input
+              type="url"
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="https://…"
+              className="input-base text-xs flex-1 font-mono"
+            />
+          )}
+          <button
+            onClick={() => addEvidence.mutate()}
+            disabled={addEvidence.isPending || content.trim().length === 0}
+            className="btn-primary px-3 shrink-0 self-start"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── Order card ────────────────────────────────────────────────────────────────
+
 function OrderCard({ order }: { order: Order }) {
   const [expanded, setExpanded] = useState(false)
   const [showPay, setShowPay] = useState(false)
+  const [showDisputeForm, setShowDisputeForm] = useState(false)
   const qc = useQueryClient()
 
-  const advanceStatus = useMutation({
-    mutationFn: (status: string) =>
-      updateOrderStatus(order.id, { status: status as Order['status'] }),
+  const confirm = useMutation({
+    mutationFn: () => updateOrderStatus(order.id, { status: 'confirmed' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['orders', 'buyer'] }),
   })
 
@@ -212,11 +365,12 @@ function OrderCard({ order }: { order: Order }) {
         <div className="flex items-center gap-3 shrink-0">
           <span className={clsx(
             'text-xs font-semibold px-2 py-1 rounded-full',
-            order.status === 'confirmed'     && 'bg-mpesa/20 text-mpesa',
-            order.status === 'cancelled'     && 'bg-red-900/20 text-red-400',
-            order.status === 'disputed'      && 'bg-yellow-900/20 text-yellow-400',
+            order.status === 'confirmed'       && 'bg-mpesa/20 text-mpesa',
+            order.status === 'cancelled'       && 'bg-red-900/20 text-red-400',
+            order.status === 'disputed'        && 'bg-yellow-900/20 text-yellow-400',
             order.status === 'pending_payment' && 'bg-gray-700 text-gray-400',
-            !['confirmed','cancelled','disputed','pending_payment'].includes(order.status) && 'bg-brand-500/20 text-brand-400',
+            !['confirmed','cancelled','disputed','pending_payment'].includes(order.status)
+              && 'bg-brand-500/20 text-brand-400',
           )}>
             {ORDER_STATUS_LABELS[order.status] ?? order.status}
           </span>
@@ -243,13 +397,11 @@ function OrderCard({ order }: { order: Order }) {
           {order.buyer_location_name && (
             <p className="text-xs text-gray-500">
               Delivery to: <span className="text-gray-300">{order.buyer_location_name}</span>
-              {order.distance_km != null && (
-                <> · {order.distance_km.toFixed(0)} km</>
-              )}
+              {order.distance_km != null && <> · {order.distance_km.toFixed(0)} km</>}
             </p>
           )}
 
-          {/* Pay panel for pending_payment orders */}
+          {/* Pay panel */}
           {order.status === 'pending_payment' && (
             <div className="space-y-2">
               {!showPay ? (
@@ -272,39 +424,48 @@ function OrderCard({ order }: { order: Order }) {
             </div>
           )}
 
+          {/* Dispute form or evidence viewer */}
+          {showDisputeForm && canDispute && (
+            <DisputePanel order={order} onDone={() => setShowDisputeForm(false)} />
+          )}
+          {order.status === 'disputed' && (
+            <EvidencePanel orderId={order.id} />
+          )}
+
           {/* Buyer actions */}
-          <div className="flex gap-2 flex-wrap">
-            {canConfirm && (
-              <button
-                onClick={() => advanceStatus.mutate('confirmed')}
-                disabled={advanceStatus.isPending}
-                className="btn-success text-sm"
-              >
-                <ThumbsUp className="w-4 h-4" />
-                Confirm Delivery
-              </button>
-            )}
-            {canDispute && (
-              <button
-                onClick={() => advanceStatus.mutate('disputed')}
-                disabled={advanceStatus.isPending}
-                className="btn-secondary text-sm"
-              >
-                <AlertTriangle className="w-4 h-4" />
-                Raise Dispute
-              </button>
-            )}
-            {canCancel && (
-              <button
-                onClick={() => cancel.mutate()}
-                disabled={cancel.isPending}
-                className="btn-danger text-sm"
-              >
-                <XCircle className="w-4 h-4" />
-                Cancel Order
-              </button>
-            )}
-          </div>
+          {!showDisputeForm && (
+            <div className="flex gap-2 flex-wrap">
+              {canConfirm && (
+                <button
+                  onClick={() => confirm.mutate()}
+                  disabled={confirm.isPending}
+                  className="btn-success text-sm"
+                >
+                  <ThumbsUp className="w-4 h-4" />
+                  Confirm Delivery
+                </button>
+              )}
+              {canDispute && (
+                <button
+                  onClick={() => setShowDisputeForm(true)}
+                  className="btn-secondary text-sm"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  Raise Dispute
+                </button>
+              )}
+              {canCancel && (
+                <button
+                  onClick={() => cancel.mutate()}
+                  disabled={cancel.isPending}
+                  className="btn-danger text-sm"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Cancel Order
+                </button>
+              )}
+            </div>
+          )}
 
           <p className="text-[11px] text-gray-600">
             Order ID: {order.id} · {new Date(order.created_at).toLocaleString('en-KE')}

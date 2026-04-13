@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ShoppingBag, Package, Wheat, TrendingUp, AlertCircle,
-  LogOut, Plus, UserCircle, LogIn, Menu, X,
+  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
@@ -90,7 +90,7 @@ interface SidebarContentProps {
 
 function SidebarContent({ onNav }: SidebarContentProps) {
   const navigate = useNavigate()
-  const { authed, connecting, connect } = useAuth()
+  const { authed, connecting, connect, isAdmin } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
 
   function handleLogout() {
@@ -119,6 +119,15 @@ function SidebarContent({ onNav }: SidebarContentProps) {
           <span className="w-5 h-5 shrink-0"><Plus /></span>
           <span>New Listing</span>
         </button>
+
+        {isAdmin && (
+          <>
+            <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
+              Admin
+            </p>
+            <SideNavItem to="/admin" icon={<Shield />} label="Disputes & Users" onClick={onNav} />
+          </>
+        )}
 
         <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
           Account

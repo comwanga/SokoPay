@@ -4,10 +4,14 @@ import type {
   CreateInvoiceResponse,
   CreateOrderPayload,
   CreateProductPayload,
+  CreateUserRequest,
+  CreateUserResponse,
+  DisputeEvidence,
   ExchangeRate,
   Farmer,
   LoginRequest,
   LoginResponse,
+  OpenDisputeRow,
   Order,
   OrderStatus,
   PaymentRecord,
@@ -16,6 +20,7 @@ import type {
   RatingRequest,
   RatingResponse,
   RatingSummary,
+  ResolveDisputePayload,
   UpdateFarmerPayload,
   UpdateOrderStatusPayload,
   UpdateProductPayload,
@@ -412,6 +417,55 @@ export async function rateSellerFromBuyer(farmerId: string, payload: RatingReque
 
 export async function getFarmerAnalytics(farmerId: string): Promise<AnalyticsResponse> {
   return request<AnalyticsResponse>(`/farmers/${farmerId}/analytics`)
+}
+
+// ─── Disputes ────────────────────────────────────────────────────────────────
+
+export async function openDispute(
+  orderId: string,
+  reason: string,
+): Promise<{ order_id: string; status: string }> {
+  return request(`/orders/${orderId}/dispute`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export async function getDisputeEvidence(orderId: string): Promise<DisputeEvidence[]> {
+  return request<DisputeEvidence[]>(`/orders/${orderId}/dispute/evidence`)
+}
+
+export async function addDisputeEvidence(
+  orderId: string,
+  payload: { kind: string; content: string },
+): Promise<DisputeEvidence> {
+  return request<DisputeEvidence>(`/orders/${orderId}/dispute/evidence`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+// ─── Admin ────────────────────────────────────────────────────────────────────
+
+export async function listAdminDisputes(): Promise<OpenDisputeRow[]> {
+  return request<OpenDisputeRow[]>('/admin/disputes')
+}
+
+export async function resolveDispute(
+  orderId: string,
+  payload: ResolveDisputePayload,
+): Promise<{ resolved: boolean; refund_initiated: boolean }> {
+  return request(`/admin/disputes/${orderId}/resolve`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createUser(payload: CreateUserRequest): Promise<CreateUserResponse> {
+  return request<CreateUserResponse>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

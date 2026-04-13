@@ -228,6 +228,53 @@ export interface OrderSummary {
   created_at: string
 }
 
+// ─── Disputes ─────────────────────────────────────────────────────────────────
+
+export type EvidenceKind = 'text' | 'image' | 'url'
+
+export interface DisputeEvidence {
+  id: string
+  order_id: string
+  submitter_id: string
+  kind: EvidenceKind
+  content: string
+  created_at: string
+}
+
+export interface OpenDisputeRow {
+  order_id: string
+  dispute_reason: string | null
+  dispute_opened_at: string | null
+  total_kes: string
+  total_sats: number | null
+  seller_name: string
+  buyer_name: string
+  product_title: string
+  evidence_count: number
+}
+
+export interface ResolveDisputePayload {
+  resolution: 'refund_buyer' | 'release_seller' | 'split'
+  admin_notes?: string
+}
+
+// ─── Admin user management ────────────────────────────────────────────────────
+
+export interface CreateUserRequest {
+  username: string
+  password: string
+  role: 'admin' | 'operator' | 'farmer'
+  farmer_id?: string
+}
+
+export interface CreateUserResponse {
+  id: string
+  username: string
+  role: string
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
 export interface AnalyticsResponse {
   total_orders: number
   completed_orders: number

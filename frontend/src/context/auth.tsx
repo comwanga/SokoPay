@@ -8,6 +8,8 @@ interface AuthCtx {
   authed: boolean
   connecting: boolean
   error: string | null
+  role: string | null
+  isAdmin: boolean
   connect: () => Promise<void>
   clearError: () => void
 }
@@ -16,6 +18,8 @@ const AuthContext = createContext<AuthCtx>({
   authed: false,
   connecting: false,
   error: null,
+  role: null,
+  isAdmin: false,
   connect: async () => {},
   clearError: () => {},
 })
@@ -24,8 +28,13 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
+function getRole(): string | null {
+  return getTokenPayload()?.role ?? null
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authed, setAuthed] = useState(() => !!getToken())
+  const [role, setRole] = useState<string | null>(() => getRole())
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -33,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const onSuccess = useCallback(async () => {
     setAuthed(true)
+    setRole(getRole())
     setConnecting(false)
     setShowModal(false)
     // Redirect to profile setup if Lightning Address not yet set
@@ -74,7 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [onSuccess])
 
   return (
-    <AuthContext.Provider value={{ authed, connecting, error, connect, clearError: () => setError(null) }}>
+    <AuthContext.Provider value={{
+      authed, connecting, error, role, isAdmin: role === 'admin',
+      connect, clearError: () => setError(null),
+    }}>
       {children}
       {showModal && (
         <ConnectModal

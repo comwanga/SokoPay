@@ -8,6 +8,14 @@ import SellerDashboard from './components/SellerDashboard.tsx'
 import BuyerOrders from './components/BuyerOrders.tsx'
 import ProductForm from './components/ProductForm.tsx'
 import Profile from './components/Profile.tsx'
+import AdminDisputes from './components/AdminDisputes.tsx'
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { authed, isAdmin } = useAuth()
+  if (!authed) return <RequireAuth>{children}</RequireAuth>
+  if (!isAdmin) return <Navigate to="/" replace />
+  return <>{children}</>
+}
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { authed, connecting, connect } = useAuth()
@@ -49,6 +57,7 @@ function AppRoutes() {
         <Route path="/sell/edit/:id" element={<RequireAuth><ProductForm /></RequireAuth>} />
         <Route path="/orders" element={<RequireAuth><BuyerOrders /></RequireAuth>} />
         <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
+        <Route path="/admin" element={<RequireAdmin><AdminDisputes /></RequireAdmin>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
