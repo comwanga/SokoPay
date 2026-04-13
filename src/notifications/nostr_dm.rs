@@ -224,8 +224,8 @@ fn nip04_encrypt(key: &[u8; 32], plaintext: &[u8]) -> anyhow::Result<String> {
 
     // Encrypt with AES-256-CBC + PKCS7 padding.
     // The `cbc` crate handles padding internally — no manual byte shuffling needed.
-    let ciphertext = Aes256CbcEnc::new(key.into(), &iv.into())
-        .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
+    let ciphertext =
+        Aes256CbcEnc::new(key.into(), &iv.into()).encrypt_padded_vec_mut::<Pkcs7>(plaintext);
 
     Ok(format!(
         "{}?iv={}",

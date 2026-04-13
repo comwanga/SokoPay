@@ -492,8 +492,13 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
         Some(s) => s,
         None => {
             tracing::warn!(order_id = %order_id, "Refund: order has no sats amount");
-            mark_refund(&state, ctx.payment_id, "manual_required",
-                "Order has no sats amount — refund must be processed manually").await;
+            mark_refund(
+                &state,
+                ctx.payment_id,
+                "manual_required",
+                "Order has no sats amount — refund must be processed manually",
+            )
+            .await;
             return;
         }
     };
@@ -502,8 +507,13 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
         Some(addr) => addr,
         None => {
             tracing::warn!(order_id = %order_id, "Refund: buyer has no Lightning address on file");
-            mark_refund(&state, ctx.payment_id, "manual_required",
-                "Buyer has no Lightning address — refund must be processed manually").await;
+            mark_refund(
+                &state,
+                ctx.payment_id,
+                "manual_required",
+                "Buyer has no Lightning address — refund must be processed manually",
+            )
+            .await;
             return;
         }
     };
@@ -513,7 +523,11 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
     // Instead, we ask their wallet to generate a new receive invoice for the
     // refund amount, then we pay it out from the platform's BTCPay node.
     let amount_msats = total_sats * 1000; // sats → millisats
-    let invoice = match state.lnurl.request_invoice(&buyer_ln_address, amount_msats).await {
+    let invoice = match state
+        .lnurl
+        .request_invoice(&buyer_ln_address, amount_msats)
+        .await
+    {
         Ok(inv) => inv,
         Err(e) => {
             tracing::error!(
@@ -522,8 +536,13 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
                 error = %e,
                 "Refund: could not get invoice from buyer's Lightning wallet"
             );
-            mark_refund(&state, ctx.payment_id, "failed",
-                &format!("Could not get invoice from buyer wallet: {}", e)).await;
+            mark_refund(
+                &state,
+                ctx.payment_id,
+                "failed",
+                &format!("Could not get invoice from buyer wallet: {}", e),
+            )
+            .await;
             return;
         }
     };
@@ -531,14 +550,27 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
     // ── 3. Check BTCPay is configured ─────────────────────────────────────────
     let (btcpay_url, btcpay_key, btcpay_store) = match (
         state.config.btcpay_url.as_deref().filter(|s| !s.is_empty()),
-        state.config.btcpay_api_key.as_deref().filter(|s| !s.is_empty()),
-        state.config.btcpay_store_id.as_deref().filter(|s| !s.is_empty()),
+        state
+            .config
+            .btcpay_api_key
+            .as_deref()
+            .filter(|s| !s.is_empty()),
+        state
+            .config
+            .btcpay_store_id
+            .as_deref()
+            .filter(|s| !s.is_empty()),
     ) {
         (Some(u), Some(k), Some(s)) => (u, k, s),
         _ => {
             tracing::error!(order_id = %order_id, "Refund: BTCPay not configured");
-            mark_refund(&state, ctx.payment_id, "manual_required",
-                "BTCPay Server not configured — refund must be sent manually").await;
+            mark_refund(
+                &state,
+                ctx.payment_id,
+                "manual_required",
+                "BTCPay Server not configured — refund must be sent manually",
+            )
+            .await;
             return;
         }
     };
@@ -564,7 +596,13 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
         Ok(c) => c,
         Err(e) => {
             tracing::error!(error = %e, "Refund: failed to build HTTP client");
-            mark_refund(&state, ctx.payment_id, "failed", "Internal HTTP client error").await;
+            mark_refund(
+                &state,
+                ctx.payment_id,
+                "failed",
+                "Internal HTTP client error",
+            )
+            .await;
             return;
         }
     };
@@ -639,19 +677,17 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
 /// Every code path in `attempt_lightning_refund` that can't complete the refund
 /// calls this so admins always have a clear record of what happened.
 async fn mark_refund(state: &SharedState, payment_id: Uuid, status: &str, notes: &str) {
-    let _ = sqlx::query(
-        "UPDATE payments SET refund_status = $2, refund_notes = $3 WHERE id = $1",
-    )
-    .bind(payment_id)
-    .bind(status)
-    .bind(notes)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!(
-            payment_id = %payment_id,
-            error = %e,
-            "Failed to write refund status to DB"
-        )
-    });
+    let _ = sqlx::query("UPDATE payments SET refund_status = $2, refund_notes = $3 WHERE id = $1")
+        .bind(payment_id)
+        .bind(status)
+        .bind(notes)
+        .execute(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                payment_id = %payment_id,
+                error = %e,
+                "Failed to write refund status to DB"
+            )
+        });
 }

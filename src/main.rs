@@ -66,14 +66,12 @@ async fn main() -> Result<()> {
     // Verify we can actually write there. A directory that exists but isn't
     // writable will silently fail image uploads later at the worst moment.
     let write_probe = std::path::Path::new(&config.upload_dir).join(".write_probe");
-    tokio::fs::write(&write_probe, b"")
-        .await
-        .with_context(|| {
-            format!(
-                "Upload directory '{}' exists but is not writable",
-                config.upload_dir
-            )
-        })?;
+    tokio::fs::write(&write_probe, b"").await.with_context(|| {
+        format!(
+            "Upload directory '{}' exists but is not writable",
+            config.upload_dir
+        )
+    })?;
     tokio::fs::remove_file(&write_probe).await.ok(); // clean up; non-fatal if it fails
     tracing::info!("Upload directory verified writable: {}", config.upload_dir);
 

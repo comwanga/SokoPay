@@ -17,9 +17,7 @@ use axum::{
 use std::sync::Arc;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::KeyExtractor,
-    GovernorError, GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
 
 // ── IP extraction for rate limiting ──────────────────────────────────────────
@@ -229,16 +227,11 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
 /// Returns 200 when the service is healthy, 503 when degraded.
 /// Load balancers and readiness probes should check the HTTP status code,
 /// not just whether the endpoint responds at all.
-async fn health_check(
-    State(state): State<SharedState>,
-) -> (StatusCode, Json<serde_json::Value>) {
+async fn health_check(State(state): State<SharedState>) -> (StatusCode, Json<serde_json::Value>) {
     // A cheap query that succeeds if and only if the connection pool can
     // reach the database.  If this fails, the service cannot serve any
     // meaningful traffic, so 503 is the correct signal.
-    let db_ok = sqlx::query("SELECT 1")
-        .execute(&state.db)
-        .await
-        .is_ok();
+    let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
 
     let (code, status) = if db_ok {
         (StatusCode::OK, "ok")

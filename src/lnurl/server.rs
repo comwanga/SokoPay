@@ -309,12 +309,10 @@ pub async fn btcpay_webhook(
         .get("BTCPAY-SIG-1")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.strip_prefix("sha256="))
-        .ok_or_else(|| {
-            AppError::Webhook("Missing or malformed BTCPAY-SIG-1 header".into())
-        })?;
+        .ok_or_else(|| AppError::Webhook("Missing or malformed BTCPAY-SIG-1 header".into()))?;
 
-    let received_sig =
-        hex::decode(sig_header).map_err(|_| AppError::Webhook("BTCPAY-SIG-1 is not valid hex".into()))?;
+    let received_sig = hex::decode(sig_header)
+        .map_err(|_| AppError::Webhook("BTCPAY-SIG-1 is not valid hex".into()))?;
 
     // ── Step 3: Compute our expected signature and compare ────────────────────
     // We MUST compare in constant time. A normal `==` comparison stops at the
