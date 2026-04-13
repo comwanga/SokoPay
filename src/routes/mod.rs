@@ -9,14 +9,73 @@ use crate::products::handlers as product_handlers;
 use crate::ratings::handlers as rating_handlers;
 use crate::state::SharedState;
 use axum::{
+    extract::State,
+    http::StatusCode,
     routing::{delete, get, patch, post},
     Json, Router,
 };
 use std::sync::Arc;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+    governor::GovernorConfigBuilder,
+    key_extractor::KeyExtractor,
+    GovernorError, GovernorLayer,
 };
+
+// ── IP extraction for rate limiting ──────────────────────────────────────────
+
+/// A rate-limit key extractor that prefers trusted proxy headers over the raw
+/// X-Forwarded-For chain.
+///
+/// Why not SmartIpKeyExtractor's approach?
+/// It reads the FIRST (leftmost) XFF entry.  A client can prepend arbitrary
+/// values to XFF before the request reaches any proxy, so an attacker simply
+/// writes their own IP and bypasses per-IP rate limits.
+///
+/// What we trust instead (in order):
+///   1. CF-Connecting-IP — Cloudflare injects this at its edge; clients can't forge it.
+///   2. X-Real-IP        — nginx sets this via `proxy_set_header X-Real-IP $remote_addr`.
+///   3. Rightmost XFF    — the entry appended by the closest/final proxy; harder to spoof.
+///   4. ConnectInfo      — raw socket peer address (requires into_make_service_with_connect_info).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TrustedIpExtractor;
+
+impl KeyExtractor for TrustedIpExtractor {
+    type Key = std::net::IpAddr;
+
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        let headers = req.headers();
+
+        // Try each source in trust order, parsing each to a real IpAddr so
+        // garbage values are rejected rather than silently used as rate-limit keys.
+        headers
+            .get("CF-Connecting-IP")
+            .or_else(|| headers.get("X-Real-IP"))
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+            .or_else(|| {
+                // Rightmost XFF entry: the one the nearest proxy added.
+                // Unlike the leftmost entry (client-supplied), this is controlled
+                // by infrastructure and is much harder to spoof.
+                headers
+                    .get("x-forwarded-for")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| {
+                        s.split(',')
+                            .next_back()
+                            .and_then(|ip| ip.trim().parse::<std::net::IpAddr>().ok())
+                    })
+            })
+            .or_else(|| {
+                // Socket peer address — only present when the router uses
+                // into_make_service_with_connect_info (not required to enable this extractor).
+                req.extensions()
+                    .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                    .map(|ci| ci.0.ip())
+            })
+            .ok_or(GovernorError::UnableToExtractKey)
+    }
+}
 
 pub fn router(_state: SharedState) -> Router<SharedState> {
     // ── Rate-limiter configs ──────────────────────────────────────────────────
@@ -27,7 +86,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         GovernorConfigBuilder::default()
             .per_second(2)
             .burst_size(5)
-            .key_extractor(SmartIpKeyExtractor)
+            .key_extractor(TrustedIpExtractor)
             .finish()
             .expect("invoice governor config"),
     );
@@ -38,7 +97,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         GovernorConfigBuilder::default()
             .per_second(30)
             .burst_size(60)
-            .key_extractor(SmartIpKeyExtractor)
+            .key_extractor(TrustedIpExtractor)
             .finish()
             .expect("global governor config"),
     );
@@ -145,7 +204,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
     let oracle_routes = Router::new().route("/oracle/rate", get(oracle_handlers::get_rate));
 
     // ── Health ────────────────────────────────────────────────────────────────
-    let health_route = Router::new().route("/health", get(health));
+    let health_route = Router::new().route("/health", get(health_check));
 
     // ── Assemble with global rate limit + concurrency cap ────────────────────
     Router::new()
@@ -165,9 +224,37 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .layer(ConcurrencyLimitLayer::new(200))
 }
 
-async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION")
-    }))
+/// GET /api/health
+///
+/// Returns 200 when the service is healthy, 503 when degraded.
+/// Load balancers and readiness probes should check the HTTP status code,
+/// not just whether the endpoint responds at all.
+async fn health_check(
+    State(state): State<SharedState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // A cheap query that succeeds if and only if the connection pool can
+    // reach the database.  If this fails, the service cannot serve any
+    // meaningful traffic, so 503 is the correct signal.
+    let db_ok = sqlx::query("SELECT 1")
+        .execute(&state.db)
+        .await
+        .is_ok();
+
+    let (code, status) = if db_ok {
+        (StatusCode::OK, "ok")
+    } else {
+        tracing::error!("Health check: database unreachable");
+        (StatusCode::SERVICE_UNAVAILABLE, "degraded")
+    };
+
+    (
+        code,
+        Json(serde_json::json!({
+            "status": status,
+            "version": env!("CARGO_PKG_VERSION"),
+            "checks": {
+                "database": if db_ok { "connected" } else { "unreachable" },
+            },
+        })),
+    )
 }

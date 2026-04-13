@@ -16,13 +16,14 @@ mod routes;
 mod state;
 mod workers;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     http::{HeaderValue, Method},
     Router,
 };
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -57,9 +58,24 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting agri-pay v{}", env!("CARGO_PKG_VERSION"));
 
-    // ── Ensure upload directory exists ────────────────────────────────────────
-    tokio::fs::create_dir_all(&config.upload_dir).await?;
-    tracing::info!("Upload directory: {}", config.upload_dir);
+    // ── Ensure upload directory exists and is writable ───────────────────────
+    tokio::fs::create_dir_all(&config.upload_dir)
+        .await
+        .with_context(|| format!("Failed to create upload directory '{}'", config.upload_dir))?;
+
+    // Verify we can actually write there. A directory that exists but isn't
+    // writable will silently fail image uploads later at the worst moment.
+    let write_probe = std::path::Path::new(&config.upload_dir).join(".write_probe");
+    tokio::fs::write(&write_probe, b"")
+        .await
+        .with_context(|| {
+            format!(
+                "Upload directory '{}' exists but is not writable",
+                config.upload_dir
+            )
+        })?;
+    tokio::fs::remove_file(&write_probe).await.ok(); // clean up; non-fatal if it fails
+    tracing::info!("Upload directory verified writable: {}", config.upload_dir);
 
     // ── Shared HTTP client ────────────────────────────────────────────────────
     let http = Client::builder()
@@ -84,7 +100,11 @@ async fn main() -> Result<()> {
     });
 
     // ── Background workers ────────────────────────────────────────────────────
-    tokio::spawn(workers::payment_expiry::run(pool.clone()));
+    // We keep the JoinHandle so we can detect a panic or unexpected exit.
+    // If the worker stops, payments stop expiring and stock is never restored —
+    // that is a serious operational failure, so we exit the whole process and
+    // let the supervisor (Docker, systemd, k8s) restart it cleanly.
+    let expiry_worker = tokio::spawn(workers::payment_expiry::run(pool.clone()));
     tracing::info!("Payment expiry worker started (poll interval: 60s)");
 
     // ── CORS ──────────────────────────────────────────────────────────────────
@@ -102,14 +122,78 @@ async fn main() -> Result<()> {
         .nest_service("/uploads", ServeDir::new(&config.upload_dir))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        // Request ID layers sit outside the trace layer so the ID is stamped on
+        // the request before tracing sees it, and copied back into the response
+        // so clients can include it in bug reports.
+        // Execution order (outermost → innermost): SetRequestId → Propagate → Trace → handler
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .with_state(state);
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Listening on http://{}", addr);
-    axum::serve(listener, app).await?;
+
+    // Race the HTTP server against the background worker.
+    // Normal operation: server runs until a shutdown signal, then both stop cleanly.
+    // Abnormal: if the worker exits for any reason, we exit immediately so the
+    // supervisor can restart the whole process rather than running half a service.
+    tokio::select! {
+        result = axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown_signal()) => {
+            if let Err(e) = result {
+                tracing::error!("Server error: {}", e);
+                return Err(e.into());
+            }
+            tracing::info!("Server shut down gracefully");
+        }
+        result = expiry_worker => {
+            match result {
+                Ok(()) => tracing::error!(
+                    "Payment expiry worker exited unexpectedly — \
+                     expired invoices will not be cleaned up"
+                ),
+                Err(e) => tracing::error!(
+                    "Payment expiry worker panicked: {} — \
+                     expired invoices will not be cleaned up",
+                    e
+                ),
+            }
+            // Exit non-zero so Docker/systemd/k8s knows to restart.
+            std::process::exit(1);
+        }
+    }
 
     Ok(())
+}
+
+/// Resolves when the process receives Ctrl-C (all platforms) or SIGTERM (Unix).
+///
+/// Axum's `with_graceful_shutdown` calls this future and waits for it to
+/// resolve before closing the server. In-flight requests are allowed to
+/// complete; no new connections are accepted.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl-C handler");
+    };
+
+    // SIGTERM is the standard container stop signal (Docker, k8s).
+    // On Windows it doesn't exist, so we fall back to pending (Ctrl-C only).
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c   => tracing::info!("Received Ctrl-C — starting graceful shutdown"),
+        _ = terminate => tracing::info!("Received SIGTERM — starting graceful shutdown"),
+    }
 }
 
 fn build_cors(config: &Config) -> CorsLayer {
@@ -125,6 +209,8 @@ fn build_cors(config: &Config) -> CorsLayer {
     let mut layer = CorsLayer::new().allow_methods(methods);
 
     if config.allowed_origins.iter().any(|o| o == "*") {
+        // Wildcard: no credentials can be sent (browser CORS spec requirement).
+        // Config validation already blocked this in non-dev environments.
         layer = layer.allow_origin(tower_http::cors::Any);
     } else {
         let origins: Vec<HeaderValue> = config
@@ -133,7 +219,9 @@ fn build_cors(config: &Config) -> CorsLayer {
             .filter_map(|o| o.parse().ok())
             .collect();
         if !origins.is_empty() {
-            layer = layer.allow_origin(origins);
+            // With an explicit allow-list we can also allow credentials
+            // (cookies, Authorization header) — required for JWT-authenticated calls.
+            layer = layer.allow_origin(origins).allow_credentials(true);
         }
     }
 

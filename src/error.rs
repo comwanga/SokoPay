@@ -33,6 +33,11 @@ pub enum AppError {
     #[error("LNURL error: {0}")]
     Lnurl(String),
 
+    /// Returned when an incoming webhook fails signature verification.
+    /// Maps to 401 so the sender knows the request was rejected, not broken.
+    #[error("Webhook error: {0}")]
+    Webhook(String),
+
     #[error("Oracle error: {0}")]
     Oracle(String),
 
@@ -68,6 +73,11 @@ impl IntoResponse for AppError {
             AppError::Lnurl(msg) => {
                 tracing::error!("LNURL error: {}", msg);
                 (StatusCode::BAD_GATEWAY, msg.clone())
+            }
+            AppError::Webhook(msg) => {
+                // Log at warn, not error — this is a rejected request, not a server fault.
+                tracing::warn!("Webhook signature rejected: {}", msg);
+                (StatusCode::UNAUTHORIZED, msg.clone())
             }
             AppError::Oracle(msg) => {
                 tracing::error!("Oracle error: {}", msg);

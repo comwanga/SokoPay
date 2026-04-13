@@ -15,7 +15,7 @@ tokio = { version = "1", features = ["full"] }
 # Web framework
 axum = { version = "0.7", features = ["macros", "multipart"] }
 tower = { version = "0.4", features = ["limit"] }
-tower-http = { version = "0.5", features = ["cors", "trace", "limit", "fs"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "limit", "fs", "request-id"] }
 # Rate limiting (per-IP via governor/leaky-bucket)
 tower_governor = { version = "0.4", features = ["axum"] }
 governor = "0.6"
@@ -54,6 +54,13 @@ rust_decimal_macros = "1"
 sha2 = "0.10"
 hex = "0.4"
 secp256k1 = { version = "0.29", features = ["global-context"] }
+# AES-256-CBC for NIP-04 Nostr DM encryption
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+
+# WebSocket client for Nostr relay delivery
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = "0.3"
 
 # Error handling
 thiserror = "1"

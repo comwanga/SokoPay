@@ -8,7 +8,7 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
@@ -219,13 +219,20 @@ pub async fn create_invoice(
     // Get current exchange rate
     let btc_kes = get_or_fetch_rate(&state).await?;
 
-    // Convert KES to millisatoshis
-    let sats_per_kes = Decimal::new(100_000_000, 0) / btc_kes;
-    let amount_sats = (order.total_kes * sats_per_kes)
-        .round()
-        .to_string()
-        .parse::<i64>()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("sats conversion: {}", e)))?;
+    // Convert KES → satoshis.
+    //
+    // We divide total_kes by the BTC/KES rate to get BTC, then multiply by
+    // 100,000,000 to get sats. Doing it in one step avoids compounding the
+    // rounding error from an intermediate sats_per_kes calculation.
+    //
+    // We use ceil() — always round UP to the nearest satoshi. This ensures
+    // the platform never under-collects: a KES amount that maps to 1.4 sats
+    // becomes 2 sats, not 1. The difference is sub-cent and protects us from
+    // systematic shortfalls on high-volume small orders.
+    let amount_sats = (order.total_kes * Decimal::new(100_000_000, 0) / btc_kes)
+        .ceil()
+        .to_i64()
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("sats amount overflows i64")))?;
 
     if amount_sats < 1 {
         return Err(AppError::BadRequest(
@@ -266,9 +273,10 @@ pub async fn create_invoice(
     .fetch_one(&state.db)
     .await?;
 
-    // Log successAction in order events (best-effort, non-fatal)
+    // Log successAction in order events (best-effort — a failure here should
+    // not block the buyer from getting their invoice).
     if let Some(sa_json) = success_action_json {
-        crate::events::record_order_event(
+        if let Err(e) = crate::events::record_order_event(
             &state.db,
             body.order_id,
             Some(buyer_id),
@@ -277,7 +285,13 @@ pub async fn create_invoice(
             serde_json::json!({ "payment_id": payment_id, "success_action": sa_json }),
         )
         .await
-        .ok();
+        {
+            tracing::warn!(
+                order_id = %body.order_id,
+                error = %e,
+                "Failed to record invoice_created event — audit trail incomplete"
+            );
+        }
     }
 
     // Update order with computed sats amount
@@ -346,14 +360,36 @@ pub async fn confirm_payment(
         )));
     }
 
-    // Verify the buyer owns this order
-    let order_buyer: Option<Uuid> = sqlx::query_scalar("SELECT buyer_id FROM orders WHERE id = $1")
-        .bind(payment.order_id)
-        .fetch_optional(&state.db)
-        .await?;
+    // Verify the buyer owns this order and that it is still awaiting payment.
+    // We fetch both in one query to avoid two round-trips.
+    #[derive(FromRow)]
+    struct OrderCheck {
+        buyer_id: Uuid,
+        status: String,
+    }
+    let order_check: Option<OrderCheck> =
+        sqlx::query_as("SELECT buyer_id, status FROM orders WHERE id = $1")
+            .bind(payment.order_id)
+            .fetch_optional(&state.db)
+            .await?;
 
-    if order_buyer != Some(buyer_id) {
+    let order_check = order_check
+        .ok_or_else(|| AppError::NotFound(format!("Order {} not found", payment.order_id)))?;
+
+    if order_check.buyer_id != buyer_id {
         return Err(AppError::Forbidden("Access denied".into()));
+    }
+
+    // Guard the state transition explicitly.
+    // Without this, a replayed or raced request silently does 0 DB rows
+    // (the WHERE clause stops corruption) but still returns 200 — which
+    // confuses callers into thinking the payment succeeded.
+    if order_check.status != "pending_payment" {
+        return Err(AppError::BadRequest(format!(
+            "Cannot confirm payment: order is '{}', not 'pending_payment'. \
+             It may have been paid via another method or already cancelled.",
+            order_check.status
+        )));
     }
 
     let now = Utc::now();
@@ -370,13 +406,15 @@ pub async fn confirm_payment(
     .execute(&state.db)
     .await?;
 
-    // Advance order to paid
+    // Advance order to paid.
+    // The WHERE guard is still here as a defence-in-depth DB lock — the check
+    // above already caught the wrong-state case for the user-facing message.
     sqlx::query("UPDATE orders SET status = 'paid' WHERE id = $1 AND status = 'pending_payment'")
         .bind(payment.order_id)
         .execute(&state.db)
         .await?;
 
-    events::record_order_event(
+    if let Err(e) = events::record_order_event(
         &state.db,
         payment.order_id,
         Some(buyer_id),
@@ -388,7 +426,13 @@ pub async fn confirm_payment(
         }),
     )
     .await
-    .ok();
+    {
+        tracing::warn!(
+            order_id = %payment.order_id,
+            error = %e,
+            "Failed to record paid event — audit trail incomplete"
+        );
+    }
 
     Ok(Json(serde_json::json!({
         "confirmed": true,

@@ -76,7 +76,7 @@ pub struct BtcPayWebhookPayload {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Check BTCPay is configured; return 503 if not.
-fn require_btcpay(state: &SharedState) -> AppResult<(&str, &str, &str)> {
+pub fn require_btcpay(state: &SharedState) -> AppResult<(&str, &str, &str)> {
     let url = state.config.btcpay_url.as_deref().filter(|s| !s.is_empty());
     let key = state
         .config
@@ -279,22 +279,60 @@ pub async fn lnurlp_callback(
 /// the buyer having to do anything extra.
 ///
 /// BTCPay signs the request body with HMAC-SHA256 using BTCPAY_WEBHOOK_SECRET.
+/// We verify that signature before processing anything — without this check,
+/// anyone on the internet could fake a "payment received" event.
 pub async fn btcpay_webhook(
     State(state): State<SharedState>,
+    headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> AppResult<StatusCode> {
     let body_bytes = body;
 
-    // Signature check placeholder — BTCPay signs the body with BTCPAY_WEBHOOK_SECRET.
-    // To verify, add `headers: axum::http::HeaderMap` to the handler arguments,
-    // then compare the BTCPAY-SIG-1 header against hmac_sha256(secret, &body_bytes).
-    let _ = &state.config.btcpay_webhook_secret; // referenced to avoid dead-code warning
+    // ── Step 1: Require the webhook secret to be configured ───────────────────
+    // If it's missing, we refuse to process anything — operating without a secret
+    // means anyone could forge a payment confirmation.
+    let secret = state
+        .config
+        .btcpay_webhook_secret
+        .as_deref()
+        .ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "BTCPAY_WEBHOOK_SECRET is not set. \
+                 Configure it in BTCPay Server → Store Settings → Webhooks, \
+                 then add it to your environment."
+            ))
+        })?;
 
+    // ── Step 2: Extract the signature header ─────────────────────────────────
+    // BTCPay sends: BTCPAY-SIG-1: sha256=<lowercase_hex_of_hmac>
+    let sig_header = headers
+        .get("BTCPAY-SIG-1")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("sha256="))
+        .ok_or_else(|| {
+            AppError::Webhook("Missing or malformed BTCPAY-SIG-1 header".into())
+        })?;
+
+    let received_sig =
+        hex::decode(sig_header).map_err(|_| AppError::Webhook("BTCPAY-SIG-1 is not valid hex".into()))?;
+
+    // ── Step 3: Compute our expected signature and compare ────────────────────
+    // We MUST compare in constant time. A normal `==` comparison stops at the
+    // first byte that differs, leaking *where* signatures diverge via timing.
+    // constant_time_eq always checks every byte, giving no timing information.
+    let expected_sig = hmac_sha256(secret.as_bytes(), &body_bytes);
+    if !constant_time_eq(&expected_sig, &received_sig) {
+        tracing::warn!("BTCPay webhook signature mismatch — possible forgery attempt");
+        return Err(AppError::Webhook("Webhook signature invalid".into()));
+    }
+
+    // ── Step 4: Process the verified payload ──────────────────────────────────
     let payload: BtcPayWebhookPayload = serde_json::from_slice(body_bytes.as_ref())
         .map_err(|e| AppError::BadRequest(format!("Invalid BTCPay webhook payload: {}", e)))?;
 
     if payload.event_type != "InvoiceSettled" {
-        // Acknowledge without processing (BTCPay sends many event types)
+        // BTCPay sends many event types (InvoiceCreated, InvoiceExpired, etc).
+        // We only act on settlement — acknowledge the rest with 200 and move on.
         return Ok(StatusCode::OK);
     }
 
@@ -317,17 +355,18 @@ pub async fn btcpay_webhook(
         .await?;
 
         if result.rows_affected() > 0 {
-            // Settle the matching pending payment record
+            // Settle the matching payment record.
+            // This is NOT fire-and-forget (.ok()) — if we've just marked the order
+            // as paid but fail to mark the payment settled, we have an inconsistent DB.
             sqlx::query(
                 "UPDATE payments SET status = 'settled', settled_at = NOW()
                  WHERE order_id = $1 AND status = 'pending'",
             )
             .bind(oid)
             .execute(&state.db)
-            .await
-            .ok();
+            .await?;
 
-            events::record_order_event(
+            if let Err(e) = events::record_order_event(
                 &state.db,
                 oid,
                 None,
@@ -339,7 +378,14 @@ pub async fn btcpay_webhook(
                 }),
             )
             .await
-            .ok();
+            {
+                // Audit log failure doesn't undo the payment, but must be visible.
+                tracing::warn!(
+                    order_id = %oid,
+                    error = %e,
+                    "Failed to record order event — audit trail incomplete"
+                );
+            }
 
             tracing::info!(order_id = %oid, "Order auto-advanced to paid via BTCPay webhook");
         }
@@ -350,8 +396,12 @@ pub async fn btcpay_webhook(
 
 // ── Crypto helpers ────────────────────────────────────────────────────────────
 
-// Ready to use once BTCPay webhook HMAC verification is wired up (see btcpay_webhook handler).
-#[allow(dead_code)]
+/// HMAC-SHA256 built from the raw sha2 crate — no extra dependency needed.
+///
+/// How it works: HMAC wraps the data in two layers of hashing.
+///   inner = SHA256(key XOR ipad || data)
+///   result = SHA256(key XOR opad || inner)
+/// The ipad/opad constants (0x36/0x5c) are defined in RFC 2104.
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     use sha2::Digest;
     // Simple HMAC-SHA256 using the sha2 crate (no hmac crate needed)
@@ -381,4 +431,25 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     outer.update(&opad);
     outer.update(inner_hash);
     outer.finalize().to_vec()
+}
+
+/// Compare two byte slices in constant time to prevent timing attacks.
+///
+/// A normal equality check (`a == b`) stops at the first byte that differs,
+/// so an attacker can measure how long the comparison took and deduce how many
+/// bytes of their forged signature matched. This function always checks every
+/// byte — the time it takes reveals nothing about *where* the slices differ.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    // Different lengths are an immediate mismatch, but we still do the loop
+    // below on a zero-length slice so we don't short-circuit on length either.
+    if a.len() != b.len() {
+        return false;
+    }
+    // XOR each pair of bytes and OR the results into `diff`.
+    // Any differing byte makes diff non-zero; identical slices keep it zero.
+    let diff = a
+        .iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y));
+    diff == 0
 }

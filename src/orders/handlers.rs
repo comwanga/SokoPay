@@ -315,7 +315,7 @@ pub async fn create_order(
 
     tx.commit().await?;
 
-    events::record_order_event(
+    if let Err(e) = events::record_order_event(
         &state.db,
         order_id,
         Some(buyer_id),
@@ -329,7 +329,13 @@ pub async fn create_order(
         }),
     )
     .await
-    .ok();
+    {
+        tracing::warn!(
+            order_id = %order_id,
+            error = %e,
+            "Failed to record order_created event — audit trail incomplete"
+        );
+    }
 
     let order: OrderRow = sqlx::query_as(&format!("{} WHERE o.id = $1", ORDER_SELECT))
         .bind(order_id)
@@ -480,7 +486,7 @@ pub async fn update_order_status(
     .execute(&state.db)
     .await?;
 
-    events::record_order_event(
+    if let Err(e) = events::record_order_event(
         &state.db,
         id,
         Some(user_id),
@@ -489,7 +495,14 @@ pub async fn update_order_status(
         serde_json::json!({ "delivery_date": body.delivery_date }),
     )
     .await
-    .ok();
+    {
+        tracing::warn!(
+            order_id = %id,
+            status = %body.status,
+            error = %e,
+            "Failed to record status event — audit trail incomplete"
+        );
+    }
 
     let order: OrderRow = sqlx::query_as(&format!("{} WHERE o.id = $1", ORDER_SELECT))
         .bind(id)
@@ -593,7 +606,7 @@ pub async fn cancel_order(
 
     tx.commit().await?;
 
-    events::record_order_event(
+    if let Err(e) = events::record_order_event(
         &state.db,
         id,
         Some(user_id),
@@ -602,7 +615,13 @@ pub async fn cancel_order(
         serde_json::json!({}),
     )
     .await
-    .ok();
+    {
+        tracing::warn!(
+            order_id = %id,
+            error = %e,
+            "Failed to record cancelled event — audit trail incomplete"
+        );
+    }
 
     Ok(Json(serde_json::json!({ "cancelled": true })))
 }

@@ -1,25 +1,35 @@
 //! Nostr DM notifications for order status changes.
 //!
-//! When an order moves to a new status, we send an encrypted message
-//! to the buyer or seller on their Nostr account.
+//! When an order moves to a new status, we send an encrypted direct message
+//! to the buyer or seller on their Nostr account (NIP-04, kind 4).
 //!
 //! Set these in your .env to enable:
 //!   NOSTR_RELAY_URL    — e.g. wss://relay.damus.io
 //!   NOSTR_PRIVKEY_HEX  — 32-byte hex private key for the platform account
 //!
 //! If either is missing, notifications are silently skipped.
-//!
-//! We follow NIP-04 (widely supported by wallets and apps).
-//! Add tokio-tungstenite to Cargo.toml to send messages over WebSocket.
+//! If a send fails, it is retried up to 3 times with exponential backoff.
 
 use crate::config::Config;
+use aes::Aes256;
+use cbc::{
+    cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit},
+    Encryptor,
+};
+use futures_util::SinkExt; // provides .send() on WebSocketStream
 use secp256k1::{Keypair, Message, PublicKey, Secp256k1, SecretKey};
 use serde::Serialize;
 use sha2::Digest;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use uuid::Uuid;
 
+// AES-256 in CBC mode for NIP-04 encryption
+type Aes256CbcEnc = Encryptor<Aes256>;
+
 const KIND_ENCRYPTED_DM: u64 = 4;
+/// Maximum attempts to deliver a single DM before giving up.
+const MAX_ATTEMPTS: u32 = 3;
 
 // ── Nostr event (NIP-01) ──────────────────────────────────────────────────────
 
@@ -77,8 +87,11 @@ pub fn status_message(new_status: &str, product_title: &str, order_id: Uuid) -> 
     }
 }
 
-/// Send a DM to `recipient_pubkey_hex`.
-/// Errors are logged but never returned — this is best-effort.
+/// Send an encrypted NIP-04 DM to `recipient_pubkey_hex`.
+///
+/// Errors are never propagated — DMs are best-effort and must never block
+/// or fail an order status update. The function retries up to 3 times with
+/// exponential backoff (500 ms, 1 s, then gives up) before logging a warning.
 pub async fn send_dm(config: &Config, recipient_pubkey_hex: &str, message: &str) {
     let relay_url = match config.nostr_relay_url.as_deref() {
         Some(u) if !u.is_empty() => u.to_owned(),
@@ -95,16 +108,33 @@ pub async fn send_dm(config: &Config, recipient_pubkey_hex: &str, message: &str)
         }
     };
 
-    match build_and_publish(&relay_url, &privkey_hex, recipient_pubkey_hex, message).await {
-        Ok(()) => tracing::debug!(
-            to = %recipient_pubkey_hex,
-            "Nostr DM sent"
-        ),
-        Err(e) => tracing::warn!(
-            to = %recipient_pubkey_hex,
-            error = %e,
-            "Could not send Nostr DM"
-        ),
+    for attempt in 0..MAX_ATTEMPTS {
+        match build_and_publish(&relay_url, &privkey_hex, recipient_pubkey_hex, message).await {
+            Ok(()) => {
+                tracing::debug!(to = %recipient_pubkey_hex, "Nostr DM sent");
+                return;
+            }
+            Err(e) if attempt < MAX_ATTEMPTS - 1 => {
+                // Back off: 500 ms on first failure, 1 s on second.
+                let wait_ms = 500 * 2u64.pow(attempt);
+                tracing::warn!(
+                    to = %recipient_pubkey_hex,
+                    attempt = attempt + 1,
+                    wait_ms,
+                    error = %e,
+                    "Nostr DM failed, retrying"
+                );
+                tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    to = %recipient_pubkey_hex,
+                    error = %e,
+                    "Nostr DM failed after {} attempts — giving up",
+                    MAX_ATTEMPTS
+                );
+            }
+        }
     }
 }
 
@@ -128,7 +158,7 @@ async fn build_and_publish(
     // Load the recipient's public key
     let recipient_bytes = hex::decode(recipient_pubkey_hex)?;
     let recipient_pubkey = if recipient_bytes.len() == 32 {
-        // x-only pubkey — add 02 prefix to make it a compressed point
+        // x-only pubkey (Nostr standard) — add 02 prefix to form a compressed point
         let mut buf = vec![0x02u8];
         buf.extend_from_slice(&recipient_bytes);
         PublicKey::from_slice(&buf)?
@@ -136,11 +166,11 @@ async fn build_and_publish(
         PublicKey::from_slice(&recipient_bytes)?
     };
 
-    // Compute ECDH shared secret (NIP-04 uses x-coord only)
+    // Compute ECDH shared secret. NIP-04 uses only the x-coordinate.
     let shared = secp256k1::ecdh::SharedSecret::new(&recipient_pubkey, &secret_key);
     let shared_bytes = shared.secret_bytes();
 
-    // Encrypt the message with AES-256-CBC
+    // Encrypt with real AES-256-CBC (replaces old XOR placeholder)
     let encrypted = nip04_encrypt(&shared_bytes, message.as_bytes())?;
 
     // Build the NIP-01 event
@@ -154,10 +184,10 @@ async fn build_and_publish(
         &encrypted,
     );
 
-    // Sign with Schnorr (BIP-340)
+    // Sign with Schnorr (BIP-340). No-aux-rand is deterministic: same input →
+    // same signature, which is fine here since each message has a unique timestamp.
     let msg_bytes = hex::decode(&id_hex)?;
     let msg = Message::from_digest_slice(&msg_bytes)?;
-    // sign_schnorr_no_aux_rand is deterministic (no randomness needed for signing)
     let sig = secp.sign_schnorr_no_aux_rand(&msg, &keypair);
     let sig_hex = hex::encode(sig.as_ref());
 
@@ -174,36 +204,29 @@ async fn build_and_publish(
     publish(relay_url, &event).await
 }
 
-// ── NIP-04 encryption (AES-256-CBC) ─────────────────────────────────────────
+// ── NIP-04 encryption (AES-256-CBC) ──────────────────────────────────────────
 
+/// Encrypts `plaintext` with AES-256-CBC using the given 32-byte key.
+///
+/// The IV is derived from SHA-256(key ‖ nanosecond_timestamp). This gives a
+/// unique IV per message without requiring the `rand` crate. For the highest
+/// security, swap in a random IV via `rand::thread_rng().fill_bytes(&mut iv)`.
+///
+/// Output format (NIP-04): `<base64_ciphertext>?iv=<base64_iv>`
 fn nip04_encrypt(key: &[u8; 32], plaintext: &[u8]) -> anyhow::Result<String> {
-    // Build a deterministic IV from SHA-256(key + timestamp_nanos).
-    // A random IV would be better; add the `rand` crate for production use.
+    // Derive a unique IV from the key and current nanosecond timestamp.
+    // SHA-256 output is 32 bytes; we take the first 16 as the 128-bit IV.
     let ts = unix_nanos().to_le_bytes();
-    let iv_hash = sha2::Sha256::digest([key.as_ref(), &ts].concat());
-    let iv: [u8; 16] = iv_hash[..16].try_into().unwrap();
+    let iv_hash = sha2::Sha256::digest([key.as_ref(), ts.as_ref()].concat());
+    let iv: [u8; 16] = iv_hash[..16]
+        .try_into()
+        .expect("SHA-256 output is always 32 bytes");
 
-    // PKCS7 padding to make plaintext a multiple of 16 bytes
-    let pad = 16 - (plaintext.len() % 16);
-    let mut padded = plaintext.to_vec();
-    padded.extend(std::iter::repeat(pad as u8).take(pad));
+    // Encrypt with AES-256-CBC + PKCS7 padding.
+    // The `cbc` crate handles padding internally — no manual byte shuffling needed.
+    let ciphertext = Aes256CbcEnc::new(key.into(), &iv.into())
+        .encrypt_padded_vec_mut::<Pkcs7>(plaintext);
 
-    // XOR-based block cipher simulation.
-    // TODO: replace with `aes` + `cbc` crates for real AES-CBC.
-    // Add to Cargo.toml:
-    //   aes = "0.8"
-    //   cbc = { version = "0.1", features = ["alloc"] }
-    // Then call: cbc::Encryptor::<aes::Aes256>::new(key.into(), &iv.into()).encrypt_padded_vec_mut::<Pkcs7>(&plaintext)
-    let mut ciphertext = padded;
-    let mut prev_block = iv;
-    for chunk in ciphertext.chunks_mut(16) {
-        for (b, p) in chunk.iter_mut().zip(prev_block.iter()) {
-            *b ^= p; // XOR with previous block (CBC mode without AES block cipher — placeholder)
-        }
-        prev_block.copy_from_slice(chunk);
-    }
-
-    // NIP-04 wire format: "<base64 ciphertext>?iv=<base64 iv>"
     Ok(format!(
         "{}?iv={}",
         base64_std(&ciphertext),
@@ -211,7 +234,7 @@ fn nip04_encrypt(key: &[u8; 32], plaintext: &[u8]) -> anyhow::Result<String> {
     ))
 }
 
-// ── Event ID (SHA-256 of canonical JSON) ──────────────────────────────────────
+// ── Event ID (SHA-256 of canonical NIP-01 JSON) ───────────────────────────────
 
 fn event_id(
     pubkey: &str,
@@ -220,24 +243,35 @@ fn event_id(
     tags: &[Vec<String>],
     content: &str,
 ) -> String {
+    // NIP-01 specifies this exact serialisation: array with a 0 prefix.
     let serialised = serde_json::json!([0, pubkey, created_at, kind, tags, content]).to_string();
     hex::encode(sha2::Sha256::digest(serialised.as_bytes()))
 }
 
-// ── Relay publish ─────────────────────────────────────────────────────────────
+// ── Relay publish (WebSocket) ─────────────────────────────────────────────────
 
+/// Connect to the relay, send one EVENT message, and close.
+///
+/// We open a fresh connection per message rather than keeping a persistent
+/// one. This is simpler and robust for low-volume notification sends; a
+/// persistent multiplexed connection would be an optimisation for higher
+/// throughput.
 async fn publish(relay_url: &str, event: &NostrEvent) -> anyhow::Result<()> {
-    // Full send requires `tokio-tungstenite`. Until that crate is added,
-    // we log the ready-to-send event so you can see it in the server logs.
-    // To enable real sends add to Cargo.toml:
-    //   tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
-    let message = serde_json::json!(["EVENT", event]).to_string();
-    tracing::info!(
-        relay = %relay_url,
-        event_id = %event.id,
-        "Nostr DM event ready (add tokio-tungstenite to Cargo.toml to send over WebSocket)"
-    );
-    tracing::debug!(payload = %message);
+    let (mut ws_stream, _) = connect_async(relay_url)
+        .await
+        .map_err(|e| anyhow::anyhow!("WebSocket connect to '{}' failed: {}", relay_url, e))?;
+
+    // NIP-01 wire format for publishing: ["EVENT", <event object>]
+    let payload = serde_json::json!(["EVENT", event]).to_string();
+
+    // Send directly on the stream (WebSocketStream implements Sink<Message>).
+    // No need to split when we only write and don't need to read the relay's ACK.
+    ws_stream
+        .send(WsMessage::Text(payload))
+        .await
+        .map_err(|e| anyhow::anyhow!("WebSocket send failed: {}", e))?;
+
+    tracing::debug!(relay = %relay_url, event_id = %event.id, "Nostr event published");
     Ok(())
 }
 
@@ -257,7 +291,7 @@ fn unix_nanos() -> u128 {
         .as_nanos()
 }
 
-/// Standard (non-URL-safe) base64 encoding without external crates.
+/// Standard (non-URL-safe) base64 encoding without an external crate.
 fn base64_std(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
