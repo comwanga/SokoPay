@@ -58,6 +58,10 @@ export interface Product {
   category: string
   status: ProductStatus
   location_name: string
+  country_code: string | null
+  currency_code: string | null
+  ships_to: string[] | null
+  is_global: boolean
   images: ProductImage[]
   avg_rating?: number
   rating_count?: number
@@ -77,6 +81,8 @@ export interface CreateProductPayload {
   location_name?: string
   location_lat?: number
   location_lng?: number
+  country_code?: string
+  is_global?: boolean
 }
 
 export interface UpdateProductPayload {
@@ -90,16 +96,41 @@ export interface UpdateProductPayload {
   location_name?: string
   location_lat?: number
   location_lng?: number
+  country_code?: string
+  is_global?: boolean
 }
 
 export const PRODUCT_UNITS = ['kg', 'piece', 'bag', 'litre', 'dozen', 'bunch', 'crate'] as const
 export type ProductUnit = (typeof PRODUCT_UNITS)[number]
 
 export const PRODUCT_CATEGORIES = [
-  'Vegetables', 'Fruits', 'Grains', 'Livestock', 'Dairy',
-  'Poultry', 'Fish', 'Crafts', 'Other',
+  'Food & Groceries',
+  'Electronics',
+  'Fashion & Clothing',
+  'Home & Living',
+  'Health & Beauty',
+  'Services',
+  'Vehicles & Parts',
+  'Property',
+  'Agriculture',
+  'Crafts & Art',
+  'Other',
 ] as const
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number]
+
+export const CATEGORY_ICONS: Record<string, string> = {
+  'Food & Groceries': '🛒',
+  'Electronics': '📱',
+  'Fashion & Clothing': '👗',
+  'Home & Living': '🏠',
+  'Health & Beauty': '💊',
+  'Services': '🔧',
+  'Vehicles & Parts': '🚗',
+  'Property': '🏘️',
+  'Agriculture': '🌾',
+  'Crafts & Art': '🎨',
+  'Other': '📦',
+}
 
 // ─── Order ────────────────────────────────────────────────────────────────────
 
@@ -173,8 +204,12 @@ export interface CreateInvoiceResponse {
 // ─── Exchange Rate ────────────────────────────────────────────────────────────
 
 export interface ExchangeRate {
-  btc_kes: string
   btc_usd: string
+  btc_local: string
+  local_currency: string
+  sats_usd: string
+  sats_local: string
+  denominations: number[]
   fetched_at: string
   live: boolean
 }

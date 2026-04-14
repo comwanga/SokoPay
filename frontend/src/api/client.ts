@@ -366,8 +366,8 @@ export async function getPaymentForOrder(orderId: string): Promise<PaymentRecord
 
 // ─── Oracle ───────────────────────────────────────────────────────────────────
 
-export async function getRate(): Promise<ExchangeRate> {
-  return request<ExchangeRate>('/oracle/rate')
+export async function getRate(currency = 'KES'): Promise<ExchangeRate> {
+  return request<ExchangeRate>(`/oracle/rate?currency=${currency}`)
 }
 
 // ─── WebLN payment helper ─────────────────────────────────────────────────────
