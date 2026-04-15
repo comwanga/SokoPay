@@ -2,6 +2,7 @@ use crate::auth;
 use crate::disputes::handlers as dispute_handlers;
 use crate::farmers::handlers as farmer_handlers;
 use crate::lnurl::server as lnurl_server;
+use crate::mpesa::handlers as mpesa_handlers;
 use crate::oracle::handlers as oracle_handlers;
 use crate::orders::handlers as order_handlers;
 use crate::payments::handlers as payment_handlers;
@@ -163,9 +164,13 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         )
         .route("/orders/:id", delete(order_handlers::cancel_order));
 
-    // ── Payments — tight rate limit (calls external LNURL endpoint) ───────────
+    // ── Payments — tight rate limit (both endpoints call external LNURL) ────────
     let payment_invoice_route = Router::new()
         .route("/payments/invoice", post(payment_handlers::create_invoice))
+        .route(
+            "/payments/verify-ln",
+            get(payment_handlers::verify_ln_address),
+        )
         .layer(GovernorLayer {
             config: invoice_governor_conf,
         });
@@ -184,6 +189,22 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
             get(lnurl_server::lnurlp_callback),
         )
         .route("/webhooks/btcpay", post(lnurl_server::btcpay_webhook));
+
+    // ── M-Pesa STK Push ───────────────────────────────────────────────────────
+    // The callback has no JWT auth (Daraja calls it server-to-server).
+    let mpesa_routes = Router::new()
+        .route(
+            "/payments/mpesa/stk-push",
+            post(mpesa_handlers::initiate_stk_push),
+        )
+        .route(
+            "/payments/mpesa/callback",
+            post(mpesa_handlers::mpesa_callback),
+        )
+        .route(
+            "/payments/mpesa/:checkout_id/status",
+            get(mpesa_handlers::get_mpesa_status),
+        );
 
     // ── Disputes ──────────────────────────────────────────────────────────────
     let dispute_routes = Router::new()
@@ -212,6 +233,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .merge(order_routes)
         .merge(payment_invoice_route)
         .merge(payment_other_routes)
+        .merge(mpesa_routes)
         .merge(lnurl_routes)
         .merge(dispute_routes)
         .merge(oracle_routes)

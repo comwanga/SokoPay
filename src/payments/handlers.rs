@@ -1,9 +1,10 @@
 use crate::auth::jwt::Claims;
 use crate::error::{AppError, AppResult};
 use crate::events;
+use crate::lnurl::LnurlPayInfo;
 use crate::state::SharedState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -14,8 +15,12 @@ use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-/// Payment invoice validity window.
-const INVOICE_EXPIRY_MINUTES: i64 = 15;
+/// Invoice validity window.
+///
+/// 60 seconds locks in the current BTC/KES rate without giving the buyer
+/// a long window to speculate on rate movements.  The frontend shows a
+/// countdown and offers a one-click refresh when the invoice expires.
+const INVOICE_EXPIRY_SECS: i64 = 60;
 
 // ── Response types ────────────────────────────────────────────────────────────
 
@@ -48,6 +53,11 @@ pub struct CreateInvoiceResponse {
 #[derive(Debug, Deserialize)]
 pub struct CreateInvoiceRequest {
     pub order_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyLnQuery {
+    pub address: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,11 +137,20 @@ async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 /// POST /api/payments/invoice
-/// Fetches the seller's Lightning Address, requests a bolt11 via LNURL-pay,
-/// and stores a pending payment record.
 ///
-/// Idempotent: if a non-expired pending invoice already exists for this order,
-/// it is returned as-is (reused=true) without hitting the seller's LNURL endpoint again.
+/// Generates a BOLT11 Lightning invoice for the given order.
+///
+/// Invoice source (in priority order):
+///   1. BTCPay Server (platform node) — reliable, no dependency on seller's wallet.
+///      The BTCPay invoice ID is stored so the webhook can auto-settle on payment.
+///   2. Seller's Lightning Address via LNURL-pay — fallback when BTCPay is not
+///      configured. Requires the seller to have a working wallet and LNURL endpoint.
+///
+/// Invoice expiry: 60 seconds. The KES→sats rate is locked at creation time.
+/// If the invoice expires the buyer requests a new one (fresh rate).
+///
+/// Idempotent: an existing non-expired pending invoice for this order is returned
+/// as-is (reused=true) to avoid hitting BTCPay/LNURL on every retry.
 pub async fn create_invoice(
     State(state): State<SharedState>,
     claims: Claims,
@@ -148,12 +167,14 @@ pub async fn create_invoice(
         seller_id: Uuid,
         total_kes: Decimal,
         status: String,
+        product_title: String,
     }
-    let order: Option<OrderInfo> =
-        sqlx::query_as("SELECT buyer_id, seller_id, total_kes, status FROM orders WHERE id = $1")
-            .bind(body.order_id)
-            .fetch_optional(&state.db)
-            .await?;
+    let order: Option<OrderInfo> = sqlx::query_as(
+        "SELECT buyer_id, seller_id, total_kes, status, product_title FROM orders WHERE id = $1",
+    )
+    .bind(body.order_id)
+    .fetch_optional(&state.db)
+    .await?;
 
     let order =
         order.ok_or_else(|| AppError::NotFound(format!("Order {} not found", body.order_id)))?;
@@ -170,7 +191,7 @@ pub async fn create_invoice(
         )));
     }
 
-    // ── Idempotency check: return existing non-expired pending invoice ─────────
+    // ── Idempotency: return existing non-expired pending invoice ──────────────
     #[derive(FromRow)]
     struct ExistingPayment {
         id: Uuid,
@@ -202,33 +223,12 @@ pub async fn create_invoice(
         ));
     }
 
-    // Fetch seller's Lightning Address
-    let ln_address: Option<String> =
-        sqlx::query_scalar("SELECT ln_address FROM farmers WHERE id = $1")
-            .bind(order.seller_id)
-            .fetch_optional(&state.db)
-            .await?
-            .flatten();
-
-    let ln_address = ln_address.ok_or_else(|| {
-        AppError::BadRequest(
-            "Seller has not set a Lightning Address yet. Contact them directly.".into(),
-        )
-    })?;
-
-    // Get current exchange rate
+    // ── Compute amount ────────────────────────────────────────────────────────
     let btc_kes = get_or_fetch_rate(&state).await?;
 
-    // Convert KES → satoshis.
-    //
-    // We divide total_kes by the BTC/KES rate to get BTC, then multiply by
-    // 100,000,000 to get sats. Doing it in one step avoids compounding the
-    // rounding error from an intermediate sats_per_kes calculation.
-    //
-    // We use ceil() — always round UP to the nearest satoshi. This ensures
-    // the platform never under-collects: a KES amount that maps to 1.4 sats
-    // becomes 2 sats, not 1. The difference is sub-cent and protects us from
-    // systematic shortfalls on high-volume small orders.
+    // KES → satoshis in one step (avoids compounded rounding from an intermediate
+    // sats_per_kes).  ceil() ensures we never under-collect — the sub-sat
+    // difference is negligible for buyers.
     let amount_sats = (order.total_kes * Decimal::new(100_000_000, 0) / btc_kes)
         .ceil()
         .to_i64()
@@ -240,28 +240,113 @@ pub async fn create_invoice(
         ));
     }
 
-    let amount_msats = amount_sats * 1000;
+    let expires_at = Utc::now() + chrono::Duration::seconds(INVOICE_EXPIRY_SECS);
 
-    // Request invoice from seller's wallet via LNURL-pay
-    let invoice = state
-        .lnurl
-        .request_invoice(&ln_address, amount_msats)
-        .await?;
+    // ── Generate BOLT11 ───────────────────────────────────────────────────────
+    //
+    // Path A: platform BTCPay node — reliable, always available regardless of
+    // whether the seller has a Lightning wallet configured.
+    //
+    // Path B: seller's own LNURL endpoint — only if BTCPay is not configured.
+    // Kept as a fallback so existing single-seller deployments still work.
 
-    let bolt11 = invoice.bolt11.clone();
-    let expires_at = Utc::now() + chrono::Duration::minutes(INVOICE_EXPIRY_MINUTES);
+    let description = format!(
+        "SokoPay {} — {}",
+        &body.order_id.to_string()[..8].to_uppercase(),
+        order.product_title,
+    );
 
-    // Serialise successAction metadata for audit log (non-critical)
-    let success_action_json = invoice
-        .success_action
-        .as_ref()
-        .map(|sa| serde_json::to_value(sa).unwrap_or(serde_json::Value::Null));
+    let (bolt11, btcpay_invoice_id) =
+        if let Ok((btcpay_url, btcpay_key, btcpay_store)) =
+            crate::lnurl::server::require_btcpay(&state)
+        {
+            // ── Path A: BTCPay ─────────────────────────────────────────────────
+            let url = format!(
+                "{}/api/v1/stores/{}/lightning/invoices",
+                btcpay_url, btcpay_store
+            );
+            let btcpay_body = serde_json::json!({
+                "amount": amount_sats.to_string(),
+                "description": description,
+                "expiry": INVOICE_EXPIRY_SECS as u64,
+            });
 
-    // Store payment record (partial unique index on order_id WHERE status='pending'
-    // prevents a race condition from creating two pending invoices simultaneously)
+            let resp = state
+                .http
+                .post(&url)
+                .header("Authorization", format!("token {}", btcpay_key))
+                .json(&btcpay_body)
+                .send()
+                .await
+                .map_err(|e| {
+                    AppError::Internal(anyhow::anyhow!("BTCPay invoice request failed: {}", e))
+                })?;
+
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "BTCPay returned {}: {}",
+                    status,
+                    text
+                )));
+            }
+
+            #[derive(serde::Deserialize)]
+            struct BtcPayLnInvoice {
+                #[serde(rename = "BOLT11")]
+                bolt11: Option<String>,
+                id: String,
+            }
+            let inv: BtcPayLnInvoice = resp.json().await.map_err(|e| {
+                AppError::Internal(anyhow::anyhow!("BTCPay response parse error: {}", e))
+            })?;
+            let b11 = inv.bolt11.ok_or_else(|| {
+                AppError::Internal(anyhow::anyhow!("BTCPay did not return a BOLT11"))
+            })?;
+
+            tracing::info!(
+                order_id = %body.order_id,
+                btcpay_invoice_id = %inv.id,
+                amount_sats = %amount_sats,
+                "Platform Lightning invoice created via BTCPay"
+            );
+            (b11, Some(inv.id))
+        } else {
+            // ── Path B: seller LNURL fallback ─────────────────────────────────
+            let ln_address: Option<String> =
+                sqlx::query_scalar("SELECT ln_address FROM farmers WHERE id = $1")
+                    .bind(order.seller_id)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .flatten();
+
+            let ln_address = ln_address.ok_or_else(|| {
+                AppError::BadRequest(
+                    "No Lightning node is configured for this platform and the seller has not set \
+                     a Lightning Address. Contact the seller or administrator."
+                        .into(),
+                )
+            })?;
+
+            let invoice = state
+                .lnurl
+                .request_invoice(&ln_address, amount_sats * 1000)
+                .await?;
+
+            tracing::info!(
+                order_id = %body.order_id,
+                amount_sats = %amount_sats,
+                "Lightning invoice created via seller LNURL"
+            );
+            (invoice.bolt11, None)
+        };
+
+    // ── Persist payment record ────────────────────────────────────────────────
     let payment_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO payments (order_id, bolt11, amount_sats, amount_kes, rate_used, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO payments
+            (order_id, bolt11, amount_sats, amount_kes, rate_used, expires_at, btcpay_invoice_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id",
     )
     .bind(body.order_id)
@@ -270,31 +355,33 @@ pub async fn create_invoice(
     .bind(order.total_kes)
     .bind(btc_kes)
     .bind(expires_at)
+    .bind(btcpay_invoice_id.as_deref())
     .fetch_one(&state.db)
     .await?;
 
-    // Log successAction in order events (best-effort — a failure here should
-    // not block the buyer from getting their invoice).
-    if let Some(sa_json) = success_action_json {
-        if let Err(e) = crate::events::record_order_event(
-            &state.db,
-            body.order_id,
-            Some(buyer_id),
-            "invoice_created",
-            None,
-            serde_json::json!({ "payment_id": payment_id, "success_action": sa_json }),
-        )
-        .await
-        {
-            tracing::warn!(
-                order_id = %body.order_id,
-                error = %e,
-                "Failed to record invoice_created event — audit trail incomplete"
-            );
-        }
+    if let Err(e) = crate::events::record_order_event(
+        &state.db,
+        body.order_id,
+        Some(buyer_id),
+        "invoice_created",
+        None,
+        serde_json::json!({
+            "payment_id": payment_id,
+            "amount_sats": amount_sats,
+            "expires_at": expires_at,
+            "via_btcpay": btcpay_invoice_id.is_some(),
+        }),
+    )
+    .await
+    {
+        tracing::warn!(
+            order_id = %body.order_id,
+            error = %e,
+            "Failed to record invoice_created event — audit trail incomplete"
+        );
     }
 
-    // Update order with computed sats amount
+    // Stamp the sats amount on the order for display
     sqlx::query("UPDATE orders SET total_sats = $2 WHERE id = $1")
         .bind(body.order_id)
         .bind(amount_sats)
@@ -498,6 +585,34 @@ pub async fn get_payment_for_order(
         settled_at: row.settled_at,
         created_at: row.created_at,
     }))
+}
+
+/// GET /api/payments/verify-ln?address=<lightning-address-or-lnurl>
+///
+/// Resolves and fetches the LNURL-pay parameters for any supported Lightning
+/// payment identifier without creating an invoice or touching the database.
+/// Called by the seller profile settings page so sellers can confirm their
+/// Lightning Address is reachable and working before saving it.
+///
+/// Accepted formats:
+///   user@domain.com          — Lightning Address (LUD-16)
+///   lnurl1dp68gurn…         — bech32 LNURL string (LUD-01)
+///   lightning:lnurl1dp68…   — URI-prefixed bech32 LNURL (LUD-17)
+///
+/// Rate-limited to the same budget as invoice creation (external HTTP call).
+pub async fn verify_ln_address(
+    State(state): State<SharedState>,
+    _claims: Claims,
+    Query(q): Query<VerifyLnQuery>,
+) -> AppResult<Json<LnurlPayInfo>> {
+    if q.address.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "address query parameter is required".into(),
+        ));
+    }
+
+    let info = state.lnurl.verify(&q.address).await?;
+    Ok(Json(info))
 }
 
 // ── Unit tests (preimage validation) ─────────────────────────────────────────

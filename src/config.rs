@@ -40,6 +40,14 @@ pub struct Config {
     // Nostr relay (optional — enables order-status DM notifications)
     pub nostr_relay_url: Option<String>,
     pub nostr_privkey_hex: Option<String>,
+    // Safaricom Daraja (optional — enables M-Pesa STK Push payments)
+    pub mpesa_consumer_key: Option<String>,
+    pub mpesa_consumer_secret: Option<String>,
+    pub mpesa_shortcode: Option<String>,
+    pub mpesa_passkey: Option<String>,
+    pub mpesa_callback_url: Option<String>,
+    /// "sandbox" or "production"
+    pub mpesa_env: String,
 }
 
 impl Config {
@@ -162,6 +170,23 @@ impl Config {
             nostr_privkey_hex: std::env::var("NOSTR_PRIVKEY_HEX")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            mpesa_consumer_key: std::env::var("MPESA_CONSUMER_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            mpesa_consumer_secret: std::env::var("MPESA_CONSUMER_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            mpesa_shortcode: std::env::var("MPESA_SHORTCODE")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            mpesa_passkey: std::env::var("MPESA_PASSKEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            mpesa_callback_url: std::env::var("MPESA_CALLBACK_URL")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            mpesa_env: std::env::var("MPESA_ENV")
+                .unwrap_or_else(|_| "sandbox".into()),
         })
     }
 }

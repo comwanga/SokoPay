@@ -11,6 +11,9 @@ import type {
   Farmer,
   LoginRequest,
   LoginResponse,
+  LnVerifyResponse,
+  MpesaStkPushResponse,
+  MpesaStatusResponse,
   OpenDisputeRow,
   Order,
   OrderStatus,
@@ -259,14 +262,24 @@ export async function listProducts(params?: {
   seller_id?: string
   page?: number
   per_page?: number
+  q?: string
+  scope?: 'local' | 'country' | 'global'
+  country?: string
+  ships_to?: string
+  sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating'
 }): Promise<Product[]> {
-  const q = new URLSearchParams()
-  if (params?.category) q.set('category', params.category)
-  if (params?.seller_id) q.set('seller_id', params.seller_id)
-  if (params?.page) q.set('page', String(params.page))
-  if (params?.per_page) q.set('per_page', String(params.per_page))
-  const qs = q.toString()
-  return request<Product[]>(`/products${qs ? `?${qs}` : ''}`)
+  const qs = new URLSearchParams()
+  if (params?.category) qs.set('category', params.category)
+  if (params?.seller_id) qs.set('seller_id', params.seller_id)
+  if (params?.page) qs.set('page', String(params.page))
+  if (params?.per_page) qs.set('per_page', String(params.per_page))
+  if (params?.q) qs.set('q', params.q)
+  if (params?.scope) qs.set('scope', params.scope)
+  if (params?.country) qs.set('country', params.country)
+  if (params?.ships_to) qs.set('ships_to', params.ships_to)
+  if (params?.sort) qs.set('sort', params.sort)
+  const str = qs.toString()
+  return request<Product[]>(`/products${str ? `?${str}` : ''}`)
 }
 
 export async function getProduct(id: string): Promise<Product> {
@@ -364,10 +377,38 @@ export async function getPaymentForOrder(orderId: string): Promise<PaymentRecord
   return request<PaymentRecord>(`/payments/order/${orderId}`)
 }
 
+// ─── M-Pesa ───────────────────────────────────────────────────────────────────
+
+export async function initiateMpesaPay(
+  orderId: string,
+  phone: string,
+): Promise<MpesaStkPushResponse> {
+  return request<MpesaStkPushResponse>('/payments/mpesa/stk-push', {
+    method: 'POST',
+    body: JSON.stringify({ order_id: orderId, phone }),
+  })
+}
+
+export async function getMpesaPaymentStatus(
+  checkoutRequestId: string,
+): Promise<MpesaStatusResponse> {
+  return request<MpesaStatusResponse>(
+    `/payments/mpesa/${encodeURIComponent(checkoutRequestId)}/status`,
+  )
+}
+
 // ─── Oracle ───────────────────────────────────────────────────────────────────
 
 export async function getRate(currency = 'KES'): Promise<ExchangeRate> {
   return request<ExchangeRate>(`/oracle/rate?currency=${currency}`)
+}
+
+// ─── Lightning Address verification ──────────────────────────────────────────
+
+export async function verifyLnAddress(address: string): Promise<LnVerifyResponse> {
+  return request<LnVerifyResponse>(
+    `/payments/verify-ln?address=${encodeURIComponent(address)}`,
+  )
 }
 
 // ─── WebLN payment helper ─────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ export interface Farmer {
   phone: string | null
   nostr_pubkey: string | null
   ln_address: string | null
+  mpesa_phone: string | null
   location_name: string | null
   created_at: string
 }
@@ -30,6 +31,7 @@ export interface UpdateFarmerPayload {
   name?: string
   pin?: string
   ln_address?: string
+  mpesa_phone?: string
   location_name?: string
   location_lat?: number
   location_lng?: number
@@ -199,6 +201,8 @@ export interface CreateInvoiceResponse {
   bolt11: string
   amount_sats: number
   amount_kes: string
+  expires_at: string   // ISO-8601 UTC — 60 seconds after creation
+  reused: boolean
 }
 
 // ─── Exchange Rate ────────────────────────────────────────────────────────────
@@ -261,6 +265,30 @@ export interface OrderSummary {
   total_kes: string
   status: string
   created_at: string
+}
+
+// ─── M-Pesa ───────────────────────────────────────────────────────────────────
+
+export interface MpesaStkPushResponse {
+  mpesa_payment_id: string
+  checkout_request_id: string
+  message: string
+}
+
+export interface MpesaStatusResponse {
+  status: 'pending' | 'paid' | 'failed' | 'cancelled' | 'expired'
+  mpesa_receipt_number: string | null
+  amount_kes: string
+}
+
+// ─── Lightning Address Verification ──────────────────────────────────────────
+
+export interface LnVerifyResponse {
+  address: string
+  min_sendable_sats: number
+  max_sendable_sats: number
+  description: string
+  callback: string
 }
 
 // ─── Disputes ─────────────────────────────────────────────────────────────────

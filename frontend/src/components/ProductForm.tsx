@@ -1,13 +1,28 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { ArrowLeft, Upload, X, MapPin, Loader2 } from 'lucide-react'
+import { ArrowLeft, Upload, X, MapPin, Loader2, Globe } from 'lucide-react'
 import {
   getProduct, createProduct, updateProduct,
   uploadProductImage, deleteProductImage,
 } from '../api/client.ts'
-import { PRODUCT_CATEGORIES, PRODUCT_UNITS } from '../types'
+import { PRODUCT_CATEGORIES, PRODUCT_UNITS, CATEGORY_ICONS } from '../types'
 import clsx from 'clsx'
+
+const COUNTRIES = [
+  { code: 'KE', name: 'Kenya' },
+  { code: 'UG', name: 'Uganda' },
+  { code: 'TZ', name: 'Tanzania' },
+  { code: 'RW', name: 'Rwanda' },
+  { code: 'ET', name: 'Ethiopia' },
+  { code: 'GH', name: 'Ghana' },
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'ZM', name: 'Zambia' },
+  { code: 'ZW', name: 'Zimbabwe' },
+  { code: 'SN', name: 'Senegal' },
+  { code: 'CI', name: "Côte d'Ivoire" },
+]
 
 export default function ProductForm() {
   const { id } = useParams<{ id: string }>()
@@ -25,6 +40,8 @@ export default function ProductForm() {
   const [locationLat, setLocationLat] = useState<number | undefined>()
   const [locationLng, setLocationLng] = useState<number | undefined>()
   const [locating, setLocating] = useState(false)
+  const [countryCode, setCountryCode] = useState('KE')
+  const [isGlobal, setIsGlobal] = useState(false)
 
   // Image upload state
   const [pendingImages, setPendingImages] = useState<File[]>([])
@@ -50,6 +67,8 @@ export default function ProductForm() {
       setQuantity(existing.quantity_avail)
       setCategory(existing.category)
       setLocationName(existing.location_name)
+      if (existing.country_code) setCountryCode(existing.country_code)
+      setIsGlobal(existing.is_global ?? false)
     }
   }, [existing])
 
@@ -65,7 +84,6 @@ export default function ProductForm() {
       const url = URL.createObjectURL(f)
       setPendingPreviews(prev => [...prev, url])
     })
-    // Reset input so same file can be re-selected
     e.target.value = ''
   }
 
@@ -98,35 +116,28 @@ export default function ProductForm() {
 
       let productId: string
 
+      const payload = {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        price_kes: priceKes,
+        unit,
+        quantity_avail: quantity,
+        category: category || undefined,
+        location_name: locationName.trim() || undefined,
+        location_lat: locationLat,
+        location_lng: locationLng,
+        country_code: countryCode || undefined,
+        is_global: isGlobal,
+      }
+
       if (isEdit && existing) {
-        await updateProduct(existing.id, {
-          title: title.trim(),
-          description: description.trim() || undefined,
-          price_kes: priceKes,
-          unit,
-          quantity_avail: quantity,
-          category: category || undefined,
-          location_name: locationName.trim() || undefined,
-          location_lat: locationLat,
-          location_lng: locationLng,
-        })
+        await updateProduct(existing.id, payload)
         productId = existing.id
       } else {
-        const p = await createProduct({
-          title: title.trim(),
-          description: description.trim() || undefined,
-          price_kes: priceKes,
-          unit,
-          quantity_avail: quantity,
-          category: category || undefined,
-          location_name: locationName.trim() || undefined,
-          location_lat: locationLat,
-          location_lng: locationLng,
-        })
+        const p = await createProduct(payload)
         productId = p.id
       }
 
-      // Upload pending images
       if (pendingImages.length > 0) {
         setUploadingImages(true)
         for (const file of pendingImages) {
@@ -169,7 +180,7 @@ export default function ProductForm() {
             type="text"
             value={title}
             onChange={e => setTitle(e.target.value)}
-            placeholder="e.g. Fresh Kienyeji Eggs"
+            placeholder="What are you selling?"
             maxLength={200}
             className="input-base"
           />
@@ -181,7 +192,7 @@ export default function ProductForm() {
           <textarea
             value={description}
             onChange={e => setDescription(e.target.value)}
-            placeholder="Describe your product, quality, harvest date, etc."
+            placeholder="Describe your item — condition, specifications, notes…"
             rows={3}
             maxLength={2000}
             className="input-base resize-none"
@@ -231,20 +242,21 @@ export default function ProductForm() {
         </div>
 
         {/* Category */}
-        <div className="space-y-1">
+        <div className="space-y-2">
           <label className="text-xs font-medium text-gray-400">Category</label>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
             <button
               type="button"
               onClick={() => setCategory('')}
               className={clsx(
-                'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                'flex flex-col items-center gap-1 p-2 rounded-xl text-[10px] font-medium border transition-all',
                 !category
                   ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
-                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-500',
+                  : 'bg-gray-800/60 text-gray-400 border-gray-700/60 hover:border-gray-500',
               )}
             >
-              None
+              <span className="text-lg">🏪</span>
+              <span>None</span>
             </button>
             {PRODUCT_CATEGORIES.map(cat => (
               <button
@@ -252,43 +264,86 @@ export default function ProductForm() {
                 type="button"
                 onClick={() => setCategory(cat === category ? '' : cat)}
                 className={clsx(
-                  'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                  'flex flex-col items-center gap-1 p-2 rounded-xl text-[10px] font-medium border transition-all',
                   category === cat
                     ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
-                    : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-500',
+                    : 'bg-gray-800/60 text-gray-400 border-gray-700/60 hover:border-gray-500',
                 )}
               >
-                {cat}
+                <span className="text-lg">{CATEGORY_ICONS[cat]}</span>
+                <span className="leading-tight text-center line-clamp-2">{cat.split(' ')[0]}</span>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Location */}
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-400">Product location</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={locationName}
-              onChange={e => setLocationName(e.target.value)}
-              placeholder="e.g. Kisumu, Kondele"
-              className="input-base"
-            />
-            <button
-              type="button"
-              onClick={handleGetLocation}
-              disabled={locating}
-              className="btn-secondary px-3 shrink-0"
-              title="Use GPS"
-            >
-              {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
-            </button>
+        {/* Location + Country */}
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-400">Location</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={locationName}
+                onChange={e => setLocationName(e.target.value)}
+                placeholder="City, area…"
+                className="input-base"
+              />
+              <button
+                type="button"
+                onClick={handleGetLocation}
+                disabled={locating}
+                className="btn-secondary px-3 shrink-0"
+                title="Use GPS"
+              >
+                {locating ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+              </button>
+            </div>
+            {locationLat && locationLng && (
+              <p className="text-xs text-mpesa">GPS captured</p>
+            )}
           </div>
-          {locationLat && locationLng && (
-            <p className="text-xs text-mpesa">GPS coordinates captured</p>
-          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-400">Country</label>
+            <select
+              value={countryCode}
+              onChange={e => setCountryCode(e.target.value)}
+              className="input-base"
+            >
+              {COUNTRIES.map(c => (
+                <option key={c.code} value={c.code}>{c.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
+
+        {/* Ships globally toggle */}
+        <label className="flex items-center gap-3 cursor-pointer">
+          <div className="relative">
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={isGlobal}
+              onChange={e => setIsGlobal(e.target.checked)}
+            />
+            <div className={clsx(
+              'w-9 h-5 rounded-full transition-colors',
+              isGlobal ? 'bg-brand-500' : 'bg-gray-700',
+            )} />
+            <div className={clsx(
+              'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+              isGlobal ? 'translate-x-4' : 'translate-x-0.5',
+            )} />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-300 flex items-center gap-1">
+              <Globe className="w-3.5 h-3.5 text-brand-400" />
+              Ships globally
+            </p>
+            <p className="text-[11px] text-gray-600">Buyers in other countries can find this listing</p>
+          </div>
+        </label>
 
         {/* Images */}
         <div className="space-y-2">
@@ -297,7 +352,6 @@ export default function ProductForm() {
           </label>
 
           <div className="flex flex-wrap gap-3">
-            {/* Existing images (edit mode) */}
             {existing?.images.map(img => (
               <div key={img.id} className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-800">
                 <img src={img.url} alt="" className="w-full h-full object-cover" />
@@ -311,7 +365,6 @@ export default function ProductForm() {
               </div>
             ))}
 
-            {/* Pending images */}
             {pendingPreviews.map((url, i) => (
               <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-800">
                 <img src={url} alt="" className="w-full h-full object-cover" />
@@ -325,7 +378,6 @@ export default function ProductForm() {
               </div>
             ))}
 
-            {/* Upload button */}
             {(existing?.images.length ?? 0) + pendingImages.length < 5 && (
               <button
                 type="button"

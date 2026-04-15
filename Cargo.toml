@@ -69,5 +69,11 @@ anyhow = "1"
 # Password hashing
 bcrypt = "0.15"
 
+# Bech32 encoding/decoding (LNURL bech32 string support — LUD-01)
+bech32 = "0.9"
+
+# Base64 encoding (Daraja OAuth2 credentials + STK Push password)
+base64 = "0.21"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

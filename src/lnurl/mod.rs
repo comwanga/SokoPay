@@ -1,3 +1,3 @@
 mod client;
 pub mod server;
-pub use client::LnurlClient;
+pub use client::{LnurlClient, LnurlPayInfo};

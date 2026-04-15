@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  ShoppingBag, Package, Wheat, TrendingUp, AlertCircle,
+  ShoppingBag, Package, Store, TrendingUp, AlertCircle,
   LogOut, Plus, UserCircle, LogIn, Menu, X, Shield,
-  Currency,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
@@ -17,7 +16,7 @@ import type { ReactNode } from 'react'
 function RateDisplay() {
   const { data: rate, isError } = useQuery({
     queryKey: ['rate'],
-    queryFn: getRate, //
+    queryFn: () => getRate(),
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
@@ -40,7 +39,7 @@ function RateDisplay() {
     <div className="flex items-center gap-1.5">
       <TrendingUp className="w-3.5 h-3.5 text-bitcoin shrink-0" />
       <span className="text-xs font-semibold text-bitcoin">
-        {parseFloat(rate.btc_kes).toLocaleString('en-KE', { maximumFractionDigits: 0 })} KES
+        {parseFloat(rate.btc_local).toLocaleString('en-KE', { maximumFractionDigits: 0 })} {rate.local_currency}
       </span>
       <span className={clsx(
         'text-[10px] px-1 py-0.5 rounded font-medium ml-1',
@@ -112,7 +111,7 @@ function SidebarContent({ onNav }: SidebarContentProps) {
         <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
           Selling
         </p>
-        <SideNavItem to="/sell" icon={<Wheat />} label="My Listings" onClick={onNav} />
+        <SideNavItem to="/sell" icon={<Store />} label="My Listings" onClick={onNav} />
         <button
           onClick={() => { navigate('/sell/new'); onNav?.() }}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left text-gray-400 hover:text-gray-200 hover:bg-gray-800"
@@ -231,7 +230,7 @@ function BottomNav() {
         <NavLink to="/sell" className={({ isActive }) =>
           clsx('flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
             isActive ? 'text-brand-400' : 'text-gray-500')}>
-          <Wheat className="w-5 h-5" />
+          <Store className="w-5 h-5" />
           Sell
         </NavLink>
 
@@ -269,11 +268,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-800">
           <div className="w-9 h-9 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center shrink-0">
-            <Wheat className="w-5 h-5 text-brand-400" />
+            <Store className="w-5 h-5 text-brand-400" />
           </div>
           <div>
-            <p className="text-base font-bold text-gray-100 leading-tight">AgriPay</p>
-            <p className="text-[11px] text-gray-500 leading-tight">P2P · Lightning</p>
+            <p className="text-base font-bold text-gray-100 leading-tight">SokoPay</p>
+            <p className="text-[11px] text-gray-500 leading-tight">Buy & Sell Anything</p>
           </div>
         </div>
         <SidebarContent />
@@ -294,11 +293,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center shrink-0">
-              <Wheat className="w-4 h-4 text-brand-400" />
+              <Store className="w-4 h-4 text-brand-400" />
             </div>
             <div>
-              <p className="text-sm font-bold text-gray-100 leading-tight">AgriPay</p>
-              <p className="text-[10px] text-gray-500 leading-tight">P2P · Lightning</p>
+              <p className="text-sm font-bold text-gray-100 leading-tight">SokoPay</p>
+              <p className="text-[10px] text-gray-500 leading-tight">Buy & Sell Anything</p>
             </div>
           </div>
           <button
@@ -324,8 +323,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
-            <Wheat className="w-4 h-4 text-brand-400" />
-            <span className="text-sm font-bold text-gray-100">AgriPay</span>
+            <Store className="w-4 h-4 text-brand-400" />
+            <span className="text-sm font-bold text-gray-100">SokoPay</span>
           </div>
           <div className="min-w-0">
             <RateDisplay />
@@ -342,4 +341,4 @@ export default function Layout({ children }: { children: ReactNode }) {
       <BottomNav />
     </div>
   )
-} 
+}

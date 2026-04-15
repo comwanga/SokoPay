@@ -144,7 +144,7 @@ pub async fn lnurlp_descriptor(
 
     // LUD-06 metadata: must contain at least one "text/plain" entry
     let metadata = serde_json::json!([
-        ["text/plain", format!("Pay {} on AgriPay", farmer.name)],
+        ["text/plain", format!("Pay {} on SokoPay", farmer.name)],
         ["text/identifier", format!("{}@{}", slug, domain)]
     ])
     .to_string();
@@ -205,25 +205,19 @@ pub async fn lnurlp_callback(
         btcpay_url, btcpay_store
     );
 
-    let default_desc = format!("Payment to {} via AgriPay", farmer.name);
+    let default_desc = format!("Payment to {} via SokoPay", farmer.name);
     let description = q.comment.as_deref().unwrap_or(&default_desc);
 
     let btcpay_body = serde_json::json!({
         "amount": amount_sats.to_string(),
         "description": description,
-        "expiry": 900,  // 15 min
+        "expiry": 900,  // 15 min — LNURL wallets manage their own expiry
     });
 
-    let client = reqwest::Client::builder()
-        .use_rustls_tls()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("HTTP client error: {}", e)))?;
-
-    let resp = client
+    let resp = state
+        .http
         .post(&btcpay_invoice_url)
         .header("Authorization", format!("token {}", btcpay_key))
-        .header("Content-Type", "application/json")
         .json(&btcpay_body)
         .send()
         .await
@@ -334,13 +328,33 @@ pub async fn btcpay_webhook(
         return Ok(StatusCode::OK);
     }
 
-    // Extract the order_id we embedded in the invoice metadata at creation time
-    let order_id: Option<Uuid> = payload
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("order_id"))
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok());
+    // Resolve the order_id two ways:
+    //   1. Metadata field "order_id" — set by the general BTCPay invoice API.
+    //   2. payments.btcpay_invoice_id lookup — set by the lightning/invoices API
+    //      used in POST /api/payments/invoice (no metadata support on that endpoint).
+    let order_id: Option<Uuid> = {
+        let from_meta = payload
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("order_id"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<Uuid>().ok());
+
+        if from_meta.is_some() {
+            from_meta
+        } else if let Some(ref btcpay_id) = payload.invoice_id {
+            sqlx::query_scalar::<_, Uuid>(
+                "SELECT order_id FROM payments WHERE btcpay_invoice_id = $1 LIMIT 1",
+            )
+            .bind(btcpay_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+        } else {
+            None
+        }
+    };
 
     if let Some(oid) = order_id {
         // Auto-advance pending_payment → paid (idempotent: WHERE guards status)

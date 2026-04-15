@@ -126,8 +126,8 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
         {/* Header */}
         <div className="flex items-start justify-between p-5 pb-0">
           <div>
-            <h2 className="text-base font-bold text-gray-100">Sign in to AgriPay</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Your identity on AgriPay</p>
+            <h2 className="text-base font-bold text-gray-100">Sign in to SokoPay</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Your identity on SokoPay</p>
           </div>
           <button
             onClick={onCancel}

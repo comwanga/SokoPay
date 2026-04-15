@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  User, Zap, MapPin, Check, AlertCircle, ExternalLink, Loader2, ShieldCheck,
+  User, Zap, MapPin, Smartphone, Check, AlertCircle, ExternalLink,
+  Loader2, ShieldCheck, RefreshCw, CheckCircle2, XCircle,
 } from 'lucide-react'
-import { updateProfile, isFediContext } from '../api/client.ts'
+import { updateProfile, verifyLnAddress, isFediContext } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
+import type { LnVerifyResponse } from '../types'
 import clsx from 'clsx'
 
 function Field({
@@ -26,6 +28,170 @@ function Field({
   )
 }
 
+// ── Lightning Address field with live verification ────────────────────────────
+
+interface LightningFieldProps {
+  value: string
+  savedAddress: string | null   // what's currently persisted in DB
+  onChange: (v: string) => void
+  onVerified: (info: LnVerifyResponse | null) => void
+}
+
+function LightningAddressField({ value, savedAddress, onChange, onVerified }: LightningFieldProps) {
+  const [status, setStatus] = useState<'idle' | 'verifying' | 'ok' | 'error'>('idle')
+  const [info, setInfo] = useState<LnVerifyResponse | null>(null)
+  const [errMsg, setErrMsg] = useState<string | null>(null)
+
+  // If the current input matches what's already saved in the DB,
+  // treat it as implicitly verified so the user doesn't have to re-verify on every save.
+  const isUnchanged = value.trim() !== '' && value.trim() === (savedAddress ?? '').trim()
+  const showVerifiedBadge = status === 'ok' || isUnchanged
+
+  async function handleVerify() {
+    const addr = value.trim()
+    if (!addr) return
+    setStatus('verifying')
+    setErrMsg(null)
+    setInfo(null)
+    onVerified(null)
+    try {
+      const result = await verifyLnAddress(addr)
+      setInfo(result)
+      setStatus('ok')
+      onVerified(result)
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : 'Verification failed')
+      setStatus('error')
+    }
+  }
+
+  function handleChange(v: string) {
+    onChange(v)
+    // Clear verification result when the user edits the field
+    if (v.trim() !== value.trim()) {
+      setStatus('idle')
+      setInfo(null)
+      setErrMsg(null)
+      onVerified(null)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Input row */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Zap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+          <input
+            type="text"
+            value={value}
+            onChange={e => handleChange(e.target.value)}
+            placeholder="you@domain.com or lnurl1dp68…"
+            inputMode="email"
+            autoComplete="off"
+            className={clsx(
+              'input-base pl-9 pr-9',
+              showVerifiedBadge && 'border-mpesa/40 focus:border-mpesa/70',
+            )}
+          />
+          {showVerifiedBadge && (
+            <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-mpesa pointer-events-none" />
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={handleVerify}
+          disabled={!value.trim() || status === 'verifying'}
+          className="btn-secondary px-3 shrink-0 gap-1.5"
+          title="Verify this address is reachable"
+        >
+          {status === 'verifying'
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : <RefreshCw className="w-4 h-4" />}
+          <span className="text-xs">{status === 'verifying' ? 'Checking…' : 'Verify'}</span>
+        </button>
+      </div>
+
+      {/* Implicitly verified (unchanged from DB) */}
+      {isUnchanged && status === 'idle' && (
+        <p className="text-xs text-mpesa flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Previously verified and saved
+        </p>
+      )}
+
+      {/* Verification success panel */}
+      {status === 'ok' && info && (
+        <div className="bg-mpesa/5 border border-mpesa/20 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-mpesa shrink-0" />
+            <p className="text-xs font-semibold text-mpesa">Wallet reachable</p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-start gap-2 text-xs">
+              <span className="text-gray-500 w-28 shrink-0">Description</span>
+              <span className="text-gray-200">{info.description}</span>
+            </div>
+            <div className="flex items-start gap-2 text-xs">
+              <span className="text-gray-500 w-28 shrink-0">Min receivable</span>
+              <span className="text-gray-200">{info.min_sendable_sats.toLocaleString()} sats</span>
+            </div>
+            <div className="flex items-start gap-2 text-xs">
+              <span className="text-gray-500 w-28 shrink-0">Max receivable</span>
+              <span className="text-gray-200">
+                {info.max_sendable_sats >= 100_000_000
+                  ? `${(info.max_sendable_sats / 100_000_000).toFixed(2)} BTC`
+                  : `${info.max_sendable_sats.toLocaleString()} sats`}
+              </span>
+            </div>
+            <div className="flex items-start gap-2 text-xs">
+              <span className="text-gray-500 w-28 shrink-0">Callback</span>
+              <span className="text-gray-500 font-mono break-all text-[10px]">{info.callback}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Verification error panel */}
+      {status === 'error' && errMsg && (
+        <div className="bg-red-900/10 border border-red-700/30 rounded-xl p-3 flex gap-2 items-start">
+          <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-red-400">Address unreachable</p>
+            <p className="text-xs text-red-500/80">{errMsg}</p>
+            <p className="text-[11px] text-gray-600 mt-1">
+              Check the address is correct, or try a different Lightning Address or wallet.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Format hints */}
+      {!value && (
+        <div className="text-[11px] text-gray-600 space-y-0.5">
+          <p>Accepted formats:</p>
+          <p className="font-mono pl-2">you@wallet.com  — Lightning Address</p>
+          <p className="font-mono pl-2">lnurl1dp68…     — bech32 LNURL string</p>
+          {isFediContext && (
+            <a
+              href="https://www.fedi.xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-brand-400 hover:text-brand-300 mt-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Fedi: Settings → Federation → Lightning Address
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Profile page ──────────────────────────────────────────────────────────────
+
 export default function Profile() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -36,6 +202,8 @@ export default function Profile() {
 
   const [name, setName] = useState('')
   const [lnAddress, setLnAddress] = useState('')
+  const [lnVerifyInfo, setLnVerifyInfo] = useState<LnVerifyResponse | null>(null)
+  const [mpesaPhone, setMpesaPhone] = useState('')
   const [locationName, setLocationName] = useState('')
   const [locationLat, setLocationLat] = useState<number | undefined>()
   const [locationLng, setLocationLng] = useState<number | undefined>()
@@ -44,11 +212,11 @@ export default function Profile() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Populate form when farmer data arrives
   useEffect(() => {
     if (farmer) {
       setName(farmer.name ?? '')
       setLnAddress(farmer.ln_address ?? '')
+      setMpesaPhone(farmer.mpesa_phone ?? '')
       setLocationName(farmer.location_name ?? '')
     }
   }, [farmer])
@@ -58,8 +226,11 @@ export default function Profile() {
     if (!farmerId) return
 
     const trimmedLn = lnAddress.trim()
-    if (trimmedLn && !trimmedLn.includes('@')) {
-      setError('Lightning Address must be in the format user@domain.com')
+
+    // Require verification if the address changed from what's in the DB
+    const addressChanged = trimmedLn !== (farmer?.ln_address ?? '').trim()
+    if (trimmedLn && addressChanged && !lnVerifyInfo) {
+      setError('Please verify your Lightning Address before saving.')
       return
     }
 
@@ -71,6 +242,7 @@ export default function Profile() {
       await updateProfile(farmerId, {
         name: name.trim() || undefined,
         ln_address: trimmedLn || undefined,
+        mpesa_phone: mpesaPhone.trim() || undefined,
         location_name: locationName.trim() || undefined,
         location_lat: locationLat,
         location_lng: locationLng,
@@ -127,21 +299,21 @@ export default function Profile() {
         </h1>
         <p className="text-sm text-gray-400 mt-0.5">
           {isSetup
-            ? 'Set your Lightning Address so buyers can pay you directly.'
+            ? 'Add your Lightning Address so buyers can pay you directly.'
             : 'Manage your account and payment settings.'}
         </p>
       </div>
 
-      {/* Lightning Address banner (setup mode or missing) */}
+      {/* Lightning Address required banner */}
       {!farmer.ln_address && (
         <div className="flex gap-3 items-start bg-yellow-900/20 border border-yellow-700/30 rounded-xl p-4">
           <AlertCircle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
           <div className="space-y-1 text-sm">
-            <p className="text-yellow-300 font-semibold">Lightning Address required to sell</p>
-            <p className="text-yellow-500/80">
-              Buyers pay you directly to your Lightning Address. Without one, invoice generation will fail.
+            <p className="text-yellow-300 font-semibold">Lightning Address required to receive payments</p>
+            <p className="text-yellow-500/80 text-xs">
+              Buyers pay directly to your Lightning Address — no platform custody.
               {isFediContext && (
-                <> You can find your Fedi Lightning Address in your federation's wallet settings.</>
+                <> Find yours in Fedi → your federation → Lightning Address.</>
               )}
             </p>
           </div>
@@ -165,6 +337,7 @@ export default function Profile() {
 
       {/* Form */}
       <form onSubmit={handleSave} className="space-y-5">
+
         <Field label="Display name">
           <div className="relative">
             <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
@@ -178,41 +351,36 @@ export default function Profile() {
           </div>
         </Field>
 
+        <Field label="Lightning Address / LNURL">
+          <LightningAddressField
+            value={lnAddress}
+            savedAddress={farmer.ln_address}
+            onChange={v => { setLnAddress(v); setSaved(false) }}
+            onVerified={setLnVerifyInfo}
+          />
+        </Field>
+
         <Field
-          label="Lightning Address"
-          hint={
-            isFediContext
-              ? 'Found in Fedi → your federation → Lightning Address'
-              : 'e.g. yourname@getalby.com or yourname@walletofsatoshi.com'
-          }
+          label="M-Pesa Number (for receiving payments)"
+          hint="Kenyan mobile number where you receive M-Pesa payments. E.g. 0712 345 678"
         >
           <div className="relative">
-            <Zap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+            <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
             <input
-              type="text"
-              value={lnAddress}
-              onChange={e => setLnAddress(e.target.value)}
-              placeholder="you@domain.com"
-              inputMode="email"
-              className={clsx(
-                'input-base pl-9',
-                farmer.ln_address && 'border-mpesa/30 focus:border-mpesa/60',
-              )}
+              type="tel"
+              value={mpesaPhone}
+              onChange={e => { setMpesaPhone(e.target.value); setSaved(false) }}
+              placeholder="0712 345 678"
+              inputMode="tel"
+              autoComplete="tel"
+              className="input-base pl-9"
             />
-            {farmer.ln_address && (
-              <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-mpesa pointer-events-none" />
-            )}
           </div>
-          {isFediContext && !farmer.ln_address && (
-            <a
-              href="https://www.fedi.xyz"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Open Fedi to copy your address
-            </a>
+          {farmer.mpesa_phone && mpesaPhone.trim() === farmer.mpesa_phone && (
+            <p className="text-xs text-mpesa flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {farmer.mpesa_phone} — saved
+            </p>
           )}
         </Field>
 
@@ -245,7 +413,7 @@ export default function Profile() {
           </div>
           {(locationLat || farmer.location_name) && (
             <p className="text-xs text-mpesa">
-              {locationLat ? 'GPS location captured' : `Location: ${farmer.location_name}`}
+              {locationLat ? 'GPS location captured' : `Saved: ${farmer.location_name}`}
             </p>
           )}
         </Field>

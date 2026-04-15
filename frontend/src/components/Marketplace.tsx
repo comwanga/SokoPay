@@ -1,12 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Search, MapPin, Package } from 'lucide-react'
+import { Search, MapPin, Package, Globe, ChevronDown } from 'lucide-react'
 import { listProducts, formatKes } from '../api/client.ts'
-import { PRODUCT_CATEGORIES } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
 import clsx from 'clsx'
 import type { Product } from '../types'
 import StarRating from './StarRating.tsx'
+
+// ── Country list (ISO alpha-2 + display name) ─────────────────────────────────
+
+const COUNTRIES = [
+  { code: 'KE', name: 'Kenya' },
+  { code: 'UG', name: 'Uganda' },
+  { code: 'TZ', name: 'Tanzania' },
+  { code: 'RW', name: 'Rwanda' },
+  { code: 'ET', name: 'Ethiopia' },
+  { code: 'GH', name: 'Ghana' },
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'ZM', name: 'Zambia' },
+  { code: 'ZW', name: 'Zimbabwe' },
+  { code: 'SN', name: 'Senegal' },
+  { code: 'CI', name: "Côte d'Ivoire" },
+]
+
+// ── Product card ──────────────────────────────────────────────────────────────
 
 function ProductCard({ product }: { product: Product }) {
   const navigate = useNavigate()
@@ -33,7 +52,12 @@ function ProductCard({ product }: { product: Product }) {
         )}
         {product.category && (
           <span className="absolute top-2 left-2 text-[10px] font-semibold bg-gray-900/80 text-gray-300 px-2 py-0.5 rounded-full">
-            {product.category}
+            {CATEGORY_ICONS[product.category] ?? '📦'} {product.category}
+          </span>
+        )}
+        {product.is_global && (
+          <span className="absolute top-2 right-2 text-[10px] font-semibold bg-brand-500/80 text-white px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+            <Globe className="w-2.5 h-2.5" /> Ships globally
           </span>
         )}
       </div>
@@ -78,73 +102,176 @@ function ProductCard({ product }: { product: Product }) {
   )
 }
 
+// ── Country selector ──────────────────────────────────────────────────────────
+
+function CountrySelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = COUNTRIES.find(c => c.code === value)
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500 transition-colors"
+      >
+        <Globe className="w-3.5 h-3.5 text-gray-400" />
+        {selected ? selected.name : 'All countries'}
+        <ChevronDown className="w-3 h-3 text-gray-500 ml-0.5" />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 left-0 z-20 bg-gray-800 border border-gray-700 rounded-xl shadow-xl min-w-[160px] py-1 max-h-64 overflow-y-auto">
+          <button
+            onClick={() => { onChange(''); setOpen(false) }}
+            className={clsx(
+              'w-full text-left px-3 py-2 text-xs transition-colors',
+              !value ? 'text-brand-400 font-medium' : 'text-gray-300 hover:bg-gray-700',
+            )}
+          >
+            All countries
+          </button>
+          {COUNTRIES.map(c => (
+            <button
+              key={c.code}
+              onClick={() => { onChange(c.code); setOpen(false) }}
+              className={clsx(
+                'w-full text-left px-3 py-2 text-xs transition-colors',
+                value === c.code ? 'text-brand-400 font-medium' : 'text-gray-300 hover:bg-gray-700',
+              )}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main marketplace page ──────────────────────────────────────────────────────
+
 export default function Marketplace() {
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState<string>('')
+  const [country, setCountry] = useState<string>('')
+  const [scope, setScope] = useState<'country' | 'global'>('global')
+
+  // Debounce search so we don't fire on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 400)
+    return () => clearTimeout(t)
+  }, [search])
 
   const { data: products = [], isLoading, isError } = useQuery({
-    queryKey: ['products', category],
-    queryFn: () => listProducts({ category: category || undefined, per_page: 60 }),
+    queryKey: ['products', category, country, scope, debouncedSearch],
+    queryFn: () => listProducts({
+      category: category || undefined,
+      country: country || undefined,
+      scope: country ? scope : undefined,
+      q: debouncedSearch || undefined,
+      per_page: 60,
+      sort: 'newest',
+    }),
     staleTime: 30_000,
   })
-
-  const filtered = search.trim()
-    ? products.filter(p =>
-        p.title.toLowerCase().includes(search.toLowerCase()) ||
-        p.seller_name.toLowerCase().includes(search.toLowerCase()) ||
-        p.location_name.toLowerCase().includes(search.toLowerCase()),
-      )
-    : products
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-gray-100">Marketplace</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Browse products and pay directly in sats</p>
+        <p className="text-sm text-gray-400 mt-0.5">Buy and sell anything, pay with Lightning</p>
       </div>
 
-      {/* Search + filter */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* Search bar */}
+      <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search products, sellers, locations…"
+            placeholder="Search products, sellers…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="input-base pl-9"
           />
         </div>
+        <CountrySelector value={country} onChange={c => { setCountry(c); setScope('country') }} />
+      </div>
 
-        <div className="flex gap-2 flex-wrap">
+      {/* Scope toggle — only meaningful when a country is selected */}
+      {country && (
+        <div className="flex gap-1 bg-gray-800/60 rounded-xl p-1 w-fit">
           <button
-            onClick={() => setCategory('')}
+            onClick={() => setScope('country')}
             className={clsx(
-              'px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
-              !category
-                ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
-                : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-500',
+              'px-4 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              scope === 'country' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
             )}
           >
-            All
+            {COUNTRIES.find(c => c.code === country)?.name ?? 'Local'}
           </button>
-          {PRODUCT_CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat === category ? '' : cat)}
-              className={clsx(
-                'px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
-                category === cat
-                  ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
-                  : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-500',
-              )}
-            >
-              {cat}
-            </button>
-          ))}
+          <button
+            onClick={() => setScope('global')}
+            className={clsx(
+              'flex items-center gap-1 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              scope === 'global' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
+            )}
+          >
+            <Globe className="w-3 h-3" />
+            + Ships here
+          </button>
         </div>
+      )}
+
+      {/* Category icon grid */}
+      <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-11 gap-2">
+        <button
+          onClick={() => setCategory('')}
+          className={clsx(
+            'flex flex-col items-center gap-1 p-2 rounded-xl text-[10px] font-medium border transition-all',
+            !category
+              ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+              : 'bg-gray-800/60 text-gray-400 border-gray-700/60 hover:border-gray-500',
+          )}
+        >
+          <span className="text-xl">🏪</span>
+          <span>All</span>
+        </button>
+        {PRODUCT_CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setCategory(cat === category ? '' : cat)}
+            className={clsx(
+              'flex flex-col items-center gap-1 p-2 rounded-xl text-[10px] font-medium border transition-all',
+              category === cat
+                ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
+                : 'bg-gray-800/60 text-gray-400 border-gray-700/60 hover:border-gray-500',
+            )}
+          >
+            <span className="text-xl">{CATEGORY_ICONS[cat]}</span>
+            <span className="leading-tight text-center line-clamp-2">{cat.split(' ')[0]}</span>
+          </button>
+        ))}
       </div>
+
+      {/* Results count */}
+      {!isLoading && !isError && (
+        <p className="text-xs text-gray-600">
+          {products.length} listing{products.length !== 1 ? 's' : ''}
+          {category ? ` in ${category}` : ''}
+          {country ? ` · ${COUNTRIES.find(c => c.code === country)?.name}` : ''}
+          {debouncedSearch ? ` matching "${debouncedSearch}"` : ''}
+        </p>
+      )}
 
       {/* Grid */}
       {isLoading && (
@@ -163,23 +290,23 @@ export default function Marketplace() {
 
       {isError && (
         <div className="text-center py-12 text-gray-500">
-          <p>Failed to load products. Please refresh.</p>
+          <p>Failed to load listings. Please refresh.</p>
         </div>
       )}
 
-      {!isLoading && !isError && filtered.length === 0 && (
+      {!isLoading && !isError && products.length === 0 && (
         <div className="text-center py-20 space-y-2">
           <Package className="w-12 h-12 text-gray-700 mx-auto" />
-          <p className="text-gray-400 font-medium">No products found</p>
+          <p className="text-gray-400 font-medium">No listings found</p>
           <p className="text-sm text-gray-600">
-            {search ? 'Try a different search term' : 'Be the first to list something!'}
+            {debouncedSearch ? 'Try a different search term' : 'Be the first to list something!'}
           </p>
         </div>
       )}
 
-      {!isLoading && !isError && filtered.length > 0 && (
+      {!isLoading && !isError && products.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {filtered.map(product => (
+          {products.map(product => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>

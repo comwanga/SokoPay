@@ -48,6 +48,7 @@ pub struct Farmer {
     pub phone: Option<String>,
     pub nostr_pubkey: Option<String>,
     pub ln_address: Option<String>,
+    pub mpesa_phone: Option<String>,
     pub location_name: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -65,6 +66,7 @@ pub struct UpdateFarmerRequest {
     pub name: Option<String>,
     pub pin: Option<String>,
     pub ln_address: Option<String>,
+    pub mpesa_phone: Option<String>,
     pub location_name: Option<String>,
     pub location_lat: Option<f64>,
     pub location_lng: Option<f64>,
@@ -83,7 +85,7 @@ pub async fn list_farmers(
     }
 
     let farmers: Vec<Farmer> = sqlx::query_as(
-        "SELECT id, name, phone, nostr_pubkey, ln_address, location_name, created_at
+        "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
          FROM farmers ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
@@ -149,7 +151,7 @@ pub async fn create_farmer(
     .await?;
 
     let farmer: Farmer = sqlx::query_as(
-        "SELECT id, name, phone, nostr_pubkey, ln_address, location_name, created_at
+        "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
          FROM farmers WHERE id = $1",
     )
     .bind(id)
@@ -170,7 +172,7 @@ pub async fn get_farmer(
     }
 
     let farmer: Option<Farmer> = sqlx::query_as(
-        "SELECT id, name, phone, nostr_pubkey, ln_address, location_name, created_at
+        "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
          FROM farmers WHERE id = $1",
     )
     .bind(id)
@@ -270,20 +272,31 @@ pub async fn update_farmer(
         None
     };
 
+    // Normalise the M-Pesa phone if provided; reject invalid numbers early.
+    let mpesa_phone_normalised: Option<String> = match body.mpesa_phone.as_deref() {
+        Some("") | None => None,
+        Some(p) => Some(
+            normalize_phone(p.trim())
+                .map_err(|e| AppError::BadRequest(format!("mpesa_phone: {}", e)))?,
+        ),
+    };
+
     sqlx::query(
         "UPDATE farmers SET
             name          = COALESCE($2, name),
             pin_hash      = COALESCE($3, pin_hash),
             ln_address    = COALESCE($4, ln_address),
-            location_name = COALESCE($5, location_name),
-            location_lat  = COALESCE($6, location_lat),
-            location_lng  = COALESCE($7, location_lng)
+            mpesa_phone   = COALESCE($5, mpesa_phone),
+            location_name = COALESCE($6, location_name),
+            location_lat  = COALESCE($7, location_lat),
+            location_lng  = COALESCE($8, location_lng)
          WHERE id = $1",
     )
     .bind(id)
     .bind(body.name.as_deref().map(str::trim))
     .bind(&pin_hash)
     .bind(body.ln_address.as_deref().map(str::trim))
+    .bind(mpesa_phone_normalised.as_deref())
     .bind(body.location_name.as_deref().map(str::trim))
     .bind(body.location_lat)
     .bind(body.location_lng)
@@ -291,7 +304,7 @@ pub async fn update_farmer(
     .await?;
 
     let farmer: Farmer = sqlx::query_as(
-        "SELECT id, name, phone, nostr_pubkey, ln_address, location_name, created_at
+        "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
          FROM farmers WHERE id = $1",
     )
     .bind(id)
