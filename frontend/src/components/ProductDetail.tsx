@@ -701,7 +701,17 @@ export default function ProductDetail() {
               {!invoiceExpired && (<>
 
               <div className="flex justify-center p-4 bg-white rounded-xl">
-                <QRCodeSVG value={invoice.bolt11.toUpperCase()} size={180} />
+                <QRCodeSVG
+                  value={invoice.bolt11.toUpperCase()}
+                  size={200}
+                  level="H"
+                  imageSettings={{
+                    src: '/logo.svg',
+                    width: 44,
+                    height: 44,
+                    excavate: true,
+                  }}
+                />
               </div>
 
               <div className="flex items-center gap-2 bg-gray-800 rounded-lg p-2">

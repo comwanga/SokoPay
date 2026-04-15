@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Rounded square background -->
+  <rect width="64" height="64" rx="14" ry="14" fill="#d97b18"/>
+
+  <!-- Store icon (simplified storefront) in white -->
+  <!-- Roof/awning -->
+  <path d="M12 26 L20 14 L44 14 L52 26 Z" fill="white" opacity="0.95"/>
+  <!-- Awning scallop -->
+  <path d="M12 26 Q16 22 20 26 Q24 22 28 26 Q32 22 36 26 Q40 22 44 26 Q48 22 52 26" fill="none" stroke="white" stroke-width="2" opacity="0.95"/>
+  <!-- Door -->
+  <rect x="26" y="36" width="12" height="14" rx="2" fill="white" opacity="0.95"/>
+  <!-- Shop front / windows -->
+  <rect x="14" y="30" width="36" height="20" rx="2" fill="none" stroke="white" stroke-width="2" opacity="0.85"/>
+  <rect x="16" y="32" width="10" height="8" rx="1" fill="white" opacity="0.6"/>
+  <rect x="38" y="32" width="10" height="8" rx="1" fill="white" opacity="0.6"/>
+</svg>
