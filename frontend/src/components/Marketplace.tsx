@@ -63,7 +63,7 @@ function ProductCard({ product }: { product: Product }) {
       </div>
 
       {/* Info */}
-      <div className="p-4 flex flex-col gap-2 flex-1">
+      <div className="p-3 flex flex-col gap-1.5 flex-1">
         <h3 className="text-sm font-semibold text-gray-100 line-clamp-2 leading-snug">
           {product.title}
         </h3>
@@ -185,11 +185,14 @@ export default function Marketplace() {
   })
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold text-gray-100">Marketplace</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Buy and sell anything, pay with Lightning</p>
+    <div className="p-4 sm:p-6 space-y-4">
+      {/* Header + search row */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-bold text-gray-100 leading-tight">Marketplace</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Buy & sell anything, pay with Lightning</p>
+        </div>
+        <CountrySelector value={country} onChange={c => { setCountry(c); setScope('country') }} />
       </div>
 
       {/* Search bar */}
@@ -204,46 +207,44 @@ export default function Marketplace() {
             className="input-base pl-9"
           />
         </div>
-        <CountrySelector value={country} onChange={c => { setCountry(c); setScope('country') }} />
+        {/* Scope toggle — only meaningful when a country is selected */}
+        {country && (
+          <div className="flex gap-0.5 bg-gray-800/60 rounded-lg p-0.5 shrink-0">
+            <button
+              onClick={() => setScope('country')}
+              className={clsx(
+                'px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap',
+                scope === 'country' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
+              )}
+            >
+              {COUNTRIES.find(c => c.code === country)?.name ?? 'Local'}
+            </button>
+            <button
+              onClick={() => setScope('global')}
+              className={clsx(
+                'flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                scope === 'global' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
+              )}
+            >
+              <Globe className="w-3 h-3" />
+              Global
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Scope toggle — only meaningful when a country is selected */}
-      {country && (
-        <div className="flex gap-1 bg-gray-800/60 rounded-xl p-1 w-fit">
-          <button
-            onClick={() => setScope('country')}
-            className={clsx(
-              'px-4 py-1.5 rounded-lg text-xs font-medium transition-colors',
-              scope === 'country' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
-            )}
-          >
-            {COUNTRIES.find(c => c.code === country)?.name ?? 'Local'}
-          </button>
-          <button
-            onClick={() => setScope('global')}
-            className={clsx(
-              'flex items-center gap-1 px-4 py-1.5 rounded-lg text-xs font-medium transition-colors',
-              scope === 'global' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
-            )}
-          >
-            <Globe className="w-3 h-3" />
-            + Ships here
-          </button>
-        </div>
-      )}
-
       {/* Category icon grid */}
-      <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-11 gap-2">
+      <div className="grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-12 gap-1.5">
         <button
           onClick={() => setCategory('')}
           className={clsx(
-            'flex flex-col items-center gap-1 p-2 rounded-xl text-[10px] font-medium border transition-all',
+            'flex flex-col items-center gap-0.5 py-1.5 px-1 rounded-lg text-[10px] font-medium border transition-all',
             !category
               ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
               : 'bg-gray-800/60 text-gray-400 border-gray-700/60 hover:border-gray-500',
           )}
         >
-          <span className="text-xl">🏪</span>
+          <span className="text-lg">🏪</span>
           <span>All</span>
         </button>
         {PRODUCT_CATEGORIES.map(cat => (
@@ -251,23 +252,23 @@ export default function Marketplace() {
             key={cat}
             onClick={() => setCategory(cat === category ? '' : cat)}
             className={clsx(
-              'flex flex-col items-center gap-1 p-2 rounded-xl text-[10px] font-medium border transition-all',
+              'flex flex-col items-center gap-0.5 py-1.5 px-1 rounded-lg text-[10px] font-medium border transition-all',
               category === cat
                 ? 'bg-brand-500/20 text-brand-400 border-brand-500/30'
                 : 'bg-gray-800/60 text-gray-400 border-gray-700/60 hover:border-gray-500',
             )}
           >
-            <span className="text-xl">{CATEGORY_ICONS[cat]}</span>
-            <span className="leading-tight text-center line-clamp-2">{cat.split(' ')[0]}</span>
+            <span className="text-lg">{CATEGORY_ICONS[cat]}</span>
+            <span className="leading-tight text-center line-clamp-1">{cat.split(' ')[0]}</span>
           </button>
         ))}
       </div>
 
       {/* Results count */}
       {!isLoading && !isError && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-600 -mt-1">
           {products.length} listing{products.length !== 1 ? 's' : ''}
-          {category ? ` in ${category}` : ''}
+          {category ? ` · ${category}` : ''}
           {country ? ` · ${COUNTRIES.find(c => c.code === country)?.name}` : ''}
           {debouncedSearch ? ` matching "${debouncedSearch}"` : ''}
         </p>
@@ -275,13 +276,13 @@ export default function Marketplace() {
 
       {/* Grid */}
       {isLoading && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+          {Array.from({ length: 10 }).map((_, i) => (
             <div key={i} className="card overflow-hidden">
               <div className="aspect-video skeleton" />
-              <div className="p-4 space-y-2">
-                <div className="skeleton h-4 w-3/4 rounded" />
-                <div className="skeleton h-5 w-1/2 rounded" />
+              <div className="p-3 space-y-2">
+                <div className="skeleton h-3.5 w-3/4 rounded" />
+                <div className="skeleton h-4 w-1/2 rounded" />
               </div>
             </div>
           ))}
@@ -295,8 +296,8 @@ export default function Marketplace() {
       )}
 
       {!isLoading && !isError && products.length === 0 && (
-        <div className="text-center py-20 space-y-2">
-          <Package className="w-12 h-12 text-gray-700 mx-auto" />
+        <div className="text-center py-16 space-y-2">
+          <Package className="w-10 h-10 text-gray-700 mx-auto" />
           <p className="text-gray-400 font-medium">No listings found</p>
           <p className="text-sm text-gray-600">
             {debouncedSearch ? 'Try a different search term' : 'Be the first to list something!'}
@@ -305,7 +306,7 @@ export default function Marketplace() {
       )}
 
       {!isLoading && !isError && products.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
           {products.map(product => (
             <ProductCard key={product.id} product={product} />
           ))}

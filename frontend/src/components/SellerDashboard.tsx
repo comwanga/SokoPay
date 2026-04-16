@@ -310,11 +310,11 @@ export default function SellerDashboard() {
   const products = myProductsQuery.data ?? []
 
   return (
-    <div className="p-6 space-y-6 max-w-3xl">
+    <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-100">My Listings</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Manage products and incoming orders</p>
+          <h1 className="text-lg font-bold text-gray-100 leading-tight">My Listings</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Manage products and incoming orders</p>
         </div>
         <button onClick={() => navigate('/sell/new')} className="btn-primary text-sm">
           <Plus className="w-4 h-4" />
