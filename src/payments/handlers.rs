@@ -684,47 +684,53 @@ pub async fn list_payment_history(
     let offset = page * PAGE_SIZE;
 
     // ── Paginated items ───────────────────────────────────────────────────────
+    // product_title, unit, seller_name, buyer_name are not columns on the orders
+    // table — they must be joined from products and farmers (two aliases: sf/bf).
+    // The payments lateral uses alias `py` to avoid colliding with the products join `p`.
     let items: Vec<PaymentHistoryItem> = sqlx::query_as(
         r#"
         SELECT
             o.id                                          AS order_id,
-            o.product_title,
-            CASE WHEN $1 = 'buyer' THEN o.seller_name
-                 ELSE o.buyer_name END                   AS counterparty_name,
+            p.title                                       AS product_title,
+            CASE WHEN $1 = 'buyer' THEN sf.name
+                 ELSE bf.name END                         AS counterparty_name,
             $1::TEXT                                      AS role,
             o.quantity::TEXT                              AS quantity,
-            o.unit,
+            p.unit,
             o.total_kes,
             o.total_sats,
             o.status                                      AS order_status,
             CASE
-                WHEN mp.id IS NOT NULL THEN 'mpesa'
-                WHEN p.id  IS NOT NULL THEN 'lightning'
+                WHEN mp.id  IS NOT NULL THEN 'mpesa'
+                WHEN py.id  IS NOT NULL THEN 'lightning'
                 ELSE COALESCE(o.payment_method, 'unknown')
             END                                           AS payment_method,
             CASE
-                WHEN mp.id IS NOT NULL THEN mp.status
-                WHEN p.id  IS NOT NULL THEN p.status
+                WHEN mp.id  IS NOT NULL THEN mp.status
+                WHEN py.id  IS NOT NULL THEN py.status
                 ELSE NULL
             END                                           AS payment_status,
             CASE
-                WHEN mp.id IS NOT NULL THEN mp.mpesa_receipt_number
-                WHEN p.id  IS NOT NULL THEN LEFT(p.payment_hash, 12)
+                WHEN mp.id  IS NOT NULL THEN mp.mpesa_receipt_number
+                WHEN py.id  IS NOT NULL THEN LEFT(py.payment_hash, 12)
                 ELSE NULL
             END                                           AS payment_ref,
             o.created_at                                  AS order_created_at,
             CASE
-                WHEN mp.id IS NOT NULL THEN mp.updated_at
-                WHEN p.id  IS NOT NULL THEN p.settled_at
+                WHEN mp.id  IS NOT NULL THEN mp.updated_at
+                WHEN py.id  IS NOT NULL THEN py.settled_at
                 ELSE NULL
             END                                           AS payment_settled_at
         FROM orders o
+        JOIN  products p   ON p.id  = o.product_id
+        JOIN  farmers  sf  ON sf.id = o.seller_id
+        JOIN  farmers  bf  ON bf.id = o.buyer_id
         LEFT JOIN LATERAL (
             SELECT id, status, payment_hash, settled_at
             FROM payments
             WHERE order_id = o.id
             ORDER BY created_at DESC LIMIT 1
-        ) p  ON TRUE
+        ) py ON TRUE
         LEFT JOIN LATERAL (
             SELECT id, status, mpesa_receipt_number, updated_at
             FROM mpesa_payments
