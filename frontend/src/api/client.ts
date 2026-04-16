@@ -24,6 +24,7 @@ import type {
   RatingResponse,
   RatingSummary,
   ResolveDisputePayload,
+  StuckRefund,
   UpdateFarmerPayload,
   UpdateOrderStatusPayload,
   UpdateProductPayload,
@@ -500,6 +501,10 @@ export async function resolveDispute(
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
+}
+
+export async function listStuckRefunds(): Promise<StuckRefund[]> {
+  return request<StuckRefund[]>('/admin/refunds')
 }
 
 export async function createUser(payload: CreateUserRequest): Promise<CreateUserResponse> {

@@ -133,6 +133,11 @@ async fn main() -> Result<()> {
     let expiry_worker = tokio::spawn(workers::payment_expiry::run(pool.clone()));
     tracing::info!("Payment expiry worker started (poll interval: 60s)");
 
+    // Dispute timeout worker: auto-resolves disputes older than 7 days.
+    // Not exit-critical — if it stops, old disputes simply aren't auto-closed.
+    tokio::spawn(workers::dispute_timeout::run(state.clone()));
+    tracing::info!("Dispute timeout worker started (poll interval: 24h)");
+
     // ── CORS ──────────────────────────────────────────────────────────────────
     let cors = build_cors(&config);
 

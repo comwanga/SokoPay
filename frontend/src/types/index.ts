@@ -321,6 +321,19 @@ export interface ResolveDisputePayload {
   admin_notes?: string
 }
 
+export interface StuckRefund {
+  order_id: string
+  product_title: string
+  buyer_name: string
+  seller_name: string
+  total_kes: string
+  total_sats: number | null
+  payment_method: string | null
+  refund_status: 'manual_required' | 'failed'
+  refund_notes: string | null
+  dispute_resolved_at: string | null
+}
+
 // ─── Admin user management ────────────────────────────────────────────────────
 
 export interface CreateUserRequest {

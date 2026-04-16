@@ -217,7 +217,8 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route(
             "/admin/disputes/:order_id/resolve",
             patch(dispute_handlers::resolve_dispute),
-        );
+        )
+        .route("/admin/refunds", get(dispute_handlers::list_stuck_refunds));
 
     // ── Oracle ────────────────────────────────────────────────────────────────
     let oracle_routes = Router::new().route("/oracle/rate", get(oracle_handlers::get_rate));

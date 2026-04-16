@@ -421,6 +421,54 @@ pub async fn resolve_dispute(
         "Dispute resolved by admin"
     );
 
+    // Notify both buyer and seller via Nostr DM (best-effort, non-blocking).
+    {
+        #[derive(sqlx::FromRow)]
+        struct Parties {
+            buyer_nostr: Option<String>,
+            seller_nostr: Option<String>,
+            product_title: String,
+        }
+        if let Ok(Some(parties)) = sqlx::query_as::<_, Parties>(
+            "SELECT bf.nostr_pubkey AS buyer_nostr,
+                    sf.nostr_pubkey AS seller_nostr,
+                    p.title         AS product_title
+             FROM orders o
+             JOIN farmers bf ON bf.id = o.buyer_id
+             JOIN farmers sf ON sf.id = o.seller_id
+             JOIN products p ON p.id  = o.product_id
+             WHERE o.id = $1",
+        )
+        .bind(order_id)
+        .fetch_optional(&state.db)
+        .await
+        {
+            let base_msg = crate::notifications::nostr_dm::status_message(
+                final_status,
+                &parties.product_title,
+                order_id,
+            );
+            let full_msg = format!(
+                "{} Resolution: {}.",
+                base_msg,
+                body.resolution.replace('_', " ")
+            );
+            if let Some(key) = parties.buyer_nostr.filter(|s| !s.is_empty()) {
+                let sc = state.clone();
+                let msg = full_msg.clone();
+                tokio::spawn(async move {
+                    crate::notifications::nostr_dm::send_dm(&sc.config, &key, &msg).await;
+                });
+            }
+            if let Some(key) = parties.seller_nostr.filter(|s| !s.is_empty()) {
+                let sc = state.clone();
+                tokio::spawn(async move {
+                    crate::notifications::nostr_dm::send_dm(&sc.config, &key, &full_msg).await;
+                });
+            }
+        }
+    }
+
     // For refund_buyer: attempt an automatic Lightning refund in the background.
     // We spawn this as a background task so the admin gets an immediate response
     // rather than waiting on external HTTP calls to BTCPay and the buyer's wallet.
@@ -459,13 +507,15 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
     struct RefundContext {
         payment_id: Uuid,
         total_sats: Option<i64>,
+        payment_method: Option<String>,
         buyer_ln_address: Option<String>,
     }
 
     let ctx: Option<RefundContext> = sqlx::query_as(
-        "SELECT p.id      AS payment_id,
+        "SELECT p.id          AS payment_id,
                 o.total_sats,
-                f.ln_address AS buyer_ln_address
+                o.payment_method,
+                f.ln_address  AS buyer_ln_address
          FROM orders o
          JOIN farmers f  ON f.id = o.buyer_id
          JOIN payments p ON p.order_id = o.id AND p.status = 'settled'
@@ -502,6 +552,23 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
             return;
         }
     };
+
+    // M-Pesa orders cannot be refunded via Lightning — flag immediately so the
+    // admin can process the reversal through the Safaricom portal instead.
+    if ctx.payment_method.as_deref() == Some("mpesa") {
+        tracing::warn!(
+            order_id = %order_id,
+            "Refund: M-Pesa order — Lightning refund not applicable"
+        );
+        mark_refund(
+            &state,
+            ctx.payment_id,
+            "manual_required",
+            "Order was paid via M-Pesa — refund must be processed manually via M-Pesa reversal",
+        )
+        .await;
+        return;
+    }
 
     let buyer_ln_address = match ctx.buyer_ln_address.filter(|s| !s.is_empty()) {
         Some(addr) => addr,
@@ -588,26 +655,7 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
         "maxFeePercent": "2.0",
     });
 
-    let http = match reqwest::Client::builder()
-        .use_rustls_tls()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "Refund: failed to build HTTP client");
-            mark_refund(
-                &state,
-                ctx.payment_id,
-                "failed",
-                "Internal HTTP client error",
-            )
-            .await;
-            return;
-        }
-    };
-
-    match http
+    match state.http
         .post(&pay_url)
         .header("Authorization", format!("token {}", btcpay_key))
         .json(&pay_body)
@@ -690,4 +738,102 @@ async fn mark_refund(state: &SharedState, payment_id: Uuid, status: &str, notes:
                 "Failed to write refund status to DB"
             )
         });
+}
+
+// ── Stuck refund visibility ───────────────────────────────────────────────────
+
+/// A resolved dispute whose automatic Lightning refund did not complete.
+/// Admins must manually process these.
+#[derive(Debug, Serialize)]
+pub struct StuckRefund {
+    pub order_id: Uuid,
+    pub product_title: String,
+    pub buyer_name: String,
+    pub seller_name: String,
+    pub total_kes: Decimal,
+    pub total_sats: Option<i64>,
+    pub payment_method: Option<String>,
+    pub refund_status: String,
+    pub refund_notes: Option<String>,
+    pub dispute_resolved_at: Option<DateTime<Utc>>,
+}
+
+/// GET /api/admin/refunds
+///
+/// Returns all resolved `refund_buyer` disputes whose Lightning refund is stuck
+/// (`manual_required` or `failed`). These require manual admin intervention —
+/// either a direct LN payment or an M-Pesa reversal.
+pub async fn list_stuck_refunds(
+    State(state): State<SharedState>,
+    claims: Claims,
+) -> AppResult<Json<Vec<StuckRefund>>> {
+    if claims.role != Role::Admin {
+        return Err(AppError::Forbidden("Admin access required".into()));
+    }
+
+    #[derive(FromRow)]
+    struct StuckRow {
+        order_id: Uuid,
+        product_title: String,
+        buyer_name: String,
+        seller_name: String,
+        total_kes: Decimal,
+        total_sats: Option<i64>,
+        payment_method: Option<String>,
+        refund_status: String,
+        refund_notes: Option<String>,
+        dispute_resolved_at: Option<DateTime<Utc>>,
+    }
+
+    // Use a LATERAL join to get the most recent settled payment for each order,
+    // then filter by refund_status. We only surface rows that need manual action.
+    let rows: Vec<StuckRow> = sqlx::query_as(
+        "SELECT
+             o.id                AS order_id,
+             prod.title          AS product_title,
+             bf.name             AS buyer_name,
+             sf.name             AS seller_name,
+             o.total_kes,
+             o.total_sats,
+             o.payment_method,
+             pay.refund_status,
+             pay.refund_notes,
+             o.dispute_resolved_at
+         FROM orders o
+         JOIN farmers bf  ON bf.id  = o.buyer_id
+         JOIN farmers sf  ON sf.id  = o.seller_id
+         JOIN products prod ON prod.id = o.product_id
+         JOIN LATERAL (
+             SELECT refund_status, refund_notes
+             FROM   payments
+             WHERE  order_id = o.id
+             ORDER  BY created_at DESC
+             LIMIT  1
+         ) pay ON true
+         WHERE o.status             = 'cancelled'
+           AND o.dispute_resolution = 'refund_buyer'
+           AND pay.refund_status    IN ('manual_required', 'failed')
+         ORDER BY o.dispute_resolved_at DESC NULLS LAST
+         LIMIT 200",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let stuck = rows
+        .into_iter()
+        .map(|r| StuckRefund {
+            order_id: r.order_id,
+            product_title: r.product_title,
+            buyer_name: r.buyer_name,
+            seller_name: r.seller_name,
+            total_kes: r.total_kes,
+            total_sats: r.total_sats,
+            payment_method: r.payment_method,
+            refund_status: r.refund_status,
+            refund_notes: r.refund_notes,
+            dispute_resolved_at: r.dispute_resolved_at,
+        })
+        .collect();
+
+    Ok(Json(stuck))
 }

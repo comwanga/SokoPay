@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ShoppingBag, Package, Store, TrendingUp, AlertCircle,
-  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield,
+  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield, ArrowLeftRight,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
 import { useAuth } from '../context/auth.tsx'
+import CurrencyConverter from './CurrencyConverter.tsx'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
@@ -86,9 +87,10 @@ function SideNavItem({ to, icon, label, end, onClick }: NavItemProps) {
 
 interface SidebarContentProps {
   onNav?: () => void
+  onOpenConverter: () => void
 }
 
-function SidebarContent({ onNav }: SidebarContentProps) {
+function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
   const navigate = useNavigate()
   const { authed, connecting, connect, isAdmin } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
@@ -183,12 +185,22 @@ function SidebarContent({ onNav }: SidebarContentProps) {
         </button>
       )}
 
-      {/* BTC Rate + sign out */}
+      {/* BTC Rate + converter + sign out */}
       <div className="px-4 py-4 border-t border-gray-800 space-y-3">
         <div>
-          <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest mb-2">
-            BTC / 1 Bitcoin
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
+              BTC / 1 Bitcoin
+            </p>
+            <button
+              onClick={onOpenConverter}
+              className="flex items-center gap-1 text-[10px] font-medium text-gray-500 hover:text-brand-400 transition-colors"
+              title="Currency Converter"
+            >
+              <ArrowLeftRight className="w-3 h-3" />
+              Converter
+            </button>
+          </div>
           <RateDisplay />
         </div>
         {authed && (
@@ -258,7 +270,8 @@ function BottomNav() {
 // ── Main layout ────────────────────────────────────────────────────────────────
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen]       = useState(false)
+  const [converterOpen, setConverterOpen] = useState(false)
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
@@ -275,7 +288,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <p className="text-[11px] text-gray-500 leading-tight">Buy & Sell Anything</p>
           </div>
         </div>
-        <SidebarContent />
+        <SidebarContent onOpenConverter={() => setConverterOpen(true)} />
       </aside>
 
       {/* ── Mobile drawer overlay ────────────────────────────────────────── */}
@@ -307,7 +320,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <SidebarContent onNav={() => setDrawerOpen(false)} />
+        <SidebarContent onNav={() => setDrawerOpen(false)} onOpenConverter={() => { setDrawerOpen(false); setConverterOpen(true) }} />
       </aside>
 
       {/* ── Right-hand column (mobile top bar + main content) ───────────── */}
@@ -326,8 +339,15 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Store className="w-4 h-4 text-brand-400" />
             <span className="text-sm font-bold text-gray-100">SokoPay</span>
           </div>
-          <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <RateDisplay />
+            <button
+              onClick={() => setConverterOpen(true)}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors shrink-0"
+              title="Currency Converter"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+            </button>
           </div>
         </header>
 
@@ -339,6 +359,11 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* Mobile bottom nav */}
       <BottomNav />
+
+      {/* Currency converter bottom sheet */}
+      {converterOpen && (
+        <CurrencyConverter onClose={() => setConverterOpen(false)} />
+      )}
     </div>
   )
 }

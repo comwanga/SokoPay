@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Shield, ChevronDown, ChevronUp, FileText, Check,
-  AlertTriangle, UserCheck, Users, RefreshCw,
+  AlertTriangle, UserCheck, Users, RefreshCw, AlertCircle,
 } from 'lucide-react'
 import {
-  listAdminDisputes, getDisputeEvidence, resolveDispute,
+  listAdminDisputes, listStuckRefunds, getDisputeEvidence, resolveDispute,
   createUser, formatKes,
 } from '../api/client.ts'
-import type { OpenDisputeRow, ResolveDisputePayload, CreateUserRequest } from '../types'
+import type { OpenDisputeRow, ResolveDisputePayload, CreateUserRequest, StuckRefund } from '../types'
 
 // ── Single dispute row ────────────────────────────────────────────────────────
 
@@ -247,16 +247,108 @@ function CreateUserPanel() {
   )
 }
 
+// ── Stuck refunds panel ───────────────────────────────────────────────────────
+
+function StuckRefundsPanel() {
+  const { data: refunds = [], isLoading, isError, refetch } = useQuery({
+    queryKey: ['admin-stuck-refunds'],
+    queryFn: listStuckRefunds,
+    staleTime: 30_000,
+  })
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500">
+          {isLoading ? 'Loading…' : `${refunds.length} stuck refund${refunds.length !== 1 ? 's' : ''} needing manual action`}
+        </p>
+        <button
+          onClick={() => refetch()}
+          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          <RefreshCw className="w-3 h-3" />
+          Refresh
+        </button>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-3">
+          {[1, 2].map(i => <div key={i} className="card h-20 skeleton" />)}
+        </div>
+      )}
+
+      {isError && (
+        <p className="text-sm text-red-400">Failed to load. Check admin access.</p>
+      )}
+
+      {!isLoading && !isError && refunds.length === 0 && (
+        <div className="text-center py-16 space-y-2">
+          <Check className="w-10 h-10 text-gray-700 mx-auto" />
+          <p className="text-gray-400 font-medium">No stuck refunds</p>
+          <p className="text-sm text-gray-600">All refunds completed automatically.</p>
+        </div>
+      )}
+
+      {refunds.map(r => <StuckRefundRow key={r.order_id} r={r} />)}
+    </section>
+  )
+}
+
+function StuckRefundRow({ r }: { r: StuckRefund }) {
+  const isManual = r.refund_status === 'manual_required'
+  const isMpesa  = r.payment_method === 'mpesa'
+
+  return (
+    <div className="card p-4 space-y-2.5">
+      <div className="flex items-start gap-3">
+        <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${isManual ? 'text-yellow-400' : 'text-red-400'}`} />
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <p className="text-sm font-semibold text-gray-100 truncate">{r.product_title}</p>
+          <p className="text-xs text-gray-400">
+            Buyer: {r.buyer_name} · Seller: {r.seller_name}
+          </p>
+          <p className="text-xs text-gray-400">
+            {formatKes(r.total_kes)}
+            {r.total_sats ? ` · ${r.total_sats.toLocaleString()} sats` : ''}
+            {r.dispute_resolved_at && (
+              <> · Resolved {new Date(r.dispute_resolved_at).toLocaleDateString('en-KE')}</>
+            )}
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+            isManual ? 'bg-yellow-900/30 text-yellow-300' : 'bg-red-900/30 text-red-300'
+          }`}>
+            {isManual ? 'Manual required' : 'Failed'}
+          </span>
+          {isMpesa && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-mpesa/10 text-mpesa font-semibold">
+              M-Pesa
+            </span>
+          )}
+        </div>
+      </div>
+
+      {r.refund_notes && (
+        <p className="text-xs text-gray-500 bg-gray-800/60 rounded-lg px-3 py-2 leading-relaxed">
+          {r.refund_notes}
+        </p>
+      )}
+
+      <p className="text-[10px] text-gray-700">Order ID: {r.order_id}</p>
+    </div>
+  )
+}
+
 // ── Admin page ────────────────────────────────────────────────────────────────
 
 export default function AdminDisputes() {
-  const [tab, setTab] = useState<'disputes' | 'users'>('disputes')
+  const [tab, setTab] = useState<'disputes' | 'refunds' | 'users'>('disputes')
 
   const { data: disputes = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-disputes'],
     queryFn: listAdminDisputes,
     staleTime: 30_000,
-    enabled: tab === 'disputes',
   })
 
   return (
@@ -272,7 +364,7 @@ export default function AdminDisputes() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-800/60 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-gray-800/60 rounded-xl p-1 w-fit flex-wrap">
         <button
           onClick={() => setTab('disputes')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
@@ -281,6 +373,15 @@ export default function AdminDisputes() {
         >
           <AlertTriangle className="w-3.5 h-3.5" />
           Open Disputes
+        </button>
+        <button
+          onClick={() => setTab('refunds')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+            tab === 'refunds' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+          Stuck Refunds
         </button>
         <button
           onClick={() => setTab('users')}
@@ -330,6 +431,9 @@ export default function AdminDisputes() {
           {disputes.map(d => <DisputeRow key={d.order_id} d={d} />)}
         </section>
       )}
+
+      {/* Stuck refunds tab */}
+      {tab === 'refunds' && <StuckRefundsPanel />}
 
       {/* Users tab */}
       {tab === 'users' && (
