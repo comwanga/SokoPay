@@ -180,6 +180,10 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route(
             "/payments/order/:order_id",
             get(payment_handlers::get_payment_for_order),
+        )
+        .route(
+            "/payments/history",
+            get(payment_handlers::list_payment_history),
         );
 
     // ── LNURL-pay server + BTCPay webhook ────────────────────────────────────

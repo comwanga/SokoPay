@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ShoppingBag, Package, Store, TrendingUp, AlertCircle,
-  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield, ArrowLeftRight,
+  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield, ArrowLeftRight, History, Settings,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
 import { useAuth } from '../context/auth.tsx'
+import { useDisplaySettings } from '../context/displaySettings.tsx'
 import CurrencyConverter from './CurrencyConverter.tsx'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
@@ -15,14 +16,33 @@ import type { ReactNode } from 'react'
 // ── Rate display ───────────────────────────────────────────────────────────────
 
 function RateDisplay() {
-  const { data: rate, isError } = useQuery({
+  const { fiatCurrency } = useDisplaySettings()
+
+  const { data: rate, isError: rateError } = useQuery({
     queryKey: ['rate'],
     queryFn: () => getRate(),
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
 
-  if (isError) return (
+  // For currencies not covered by our oracle (USD and KES), fetch from CoinGecko.
+  const needsCoinGecko = fiatCurrency !== 'USD' && fiatCurrency !== 'KES'
+  const { data: cgData } = useQuery({
+    queryKey: ['cg-rate', fiatCurrency],
+    queryFn: async () => {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=${fiatCurrency.toLowerCase()}`,
+      )
+      if (!res.ok) return null
+      const json = await res.json() as { bitcoin: Record<string, number> }
+      return json.bitcoin[fiatCurrency.toLowerCase()] ?? null
+    },
+    enabled: needsCoinGecko,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+
+  if (rateError) return (
     <div className="flex items-center gap-1.5 text-xs text-red-400">
       <AlertCircle className="w-3.5 h-3.5" />
       <span>Rate unavailable</span>
@@ -36,11 +56,24 @@ function RateDisplay() {
     </div>
   )
 
+  // Determine which rate value + symbol to show
+  let displayValue: string
+  if (fiatCurrency === 'USD') {
+    displayValue = `$${parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  } else if (fiatCurrency === 'KES') {
+    displayValue = `KES ${parseFloat(rate.btc_local).toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
+  } else if (cgData != null) {
+    displayValue = `${fiatCurrency} ${cgData.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+  } else {
+    // CoinGecko loading — fall back to USD
+    displayValue = `$${parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  }
+
   return (
     <div className="flex items-center gap-1.5">
       <TrendingUp className="w-3.5 h-3.5 text-bitcoin shrink-0" />
       <span className="text-xs font-semibold text-bitcoin">
-        {parseFloat(rate.btc_local).toLocaleString('en-KE', { maximumFractionDigits: 0 })} {rate.local_currency}
+        {displayValue}
       </span>
       <span className={clsx(
         'text-[10px] px-1 py-0.5 rounded font-medium ml-1',
@@ -94,6 +127,7 @@ function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
   const navigate = useNavigate()
   const { authed, connecting, connect, isAdmin } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
+  const { fiatCurrency } = useDisplaySettings()
 
   function handleLogout() {
     clearToken()
@@ -114,6 +148,8 @@ function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
           Selling
         </p>
         <SideNavItem to="/sell" icon={<Store />} label="My Listings" onClick={onNav} />
+        <SideNavItem to="/payments" icon={<History />} label="Payment History" onClick={onNav} />
+        <SideNavItem to="/settings" icon={<Settings />} label="Display Options" onClick={onNav} />
         <button
           onClick={() => { navigate('/sell/new'); onNav?.() }}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left text-gray-400 hover:text-gray-200 hover:bg-gray-800"
@@ -190,7 +226,7 @@ function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
         <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
-              BTC / 1 Bitcoin
+              BTC / {fiatCurrency}
             </p>
             <button
               onClick={onOpenConverter}

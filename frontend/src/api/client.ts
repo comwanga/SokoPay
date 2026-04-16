@@ -17,7 +17,9 @@ import type {
   OpenDisputeRow,
   Order,
   OrderStatus,
+  PaymentHistoryResponse,
   PaymentRecord,
+  PaymentRole,
   Product,
   ProductImage,
   RatingRequest,
@@ -505,6 +507,15 @@ export async function resolveDispute(
 
 export async function listStuckRefunds(): Promise<StuckRefund[]> {
   return request<StuckRefund[]>('/admin/refunds')
+}
+
+export async function listPaymentHistory(
+  role: PaymentRole,
+  page = 0,
+): Promise<PaymentHistoryResponse> {
+  return request<PaymentHistoryResponse>(
+    `/payments/history?role=${role}&page=${page}`,
+  )
 }
 
 export async function createUser(payload: CreateUserRequest): Promise<CreateUserResponse> {

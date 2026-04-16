@@ -9,6 +9,8 @@ import BuyerOrders from './components/BuyerOrders.tsx'
 import ProductForm from './components/ProductForm.tsx'
 import Profile from './components/Profile.tsx'
 import AdminDisputes from './components/AdminDisputes.tsx'
+import PaymentHistory from './components/PaymentHistory.tsx'
+import DisplayOptions from './components/DisplayOptions.tsx'
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { authed, isAdmin } = useAuth()
@@ -56,6 +58,8 @@ function AppRoutes() {
         <Route path="/sell/new" element={<RequireAuth><ProductForm /></RequireAuth>} />
         <Route path="/sell/edit/:id" element={<RequireAuth><ProductForm /></RequireAuth>} />
         <Route path="/orders" element={<RequireAuth><BuyerOrders /></RequireAuth>} />
+        <Route path="/payments" element={<RequireAuth><PaymentHistory /></RequireAuth>} />
+        <Route path="/settings" element={<RequireAuth><DisplayOptions /></RequireAuth>} />
         <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
         <Route path="/admin" element={<RequireAdmin><AdminDisputes /></RequireAdmin>} />
         <Route path="*" element={<Navigate to="/" replace />} />

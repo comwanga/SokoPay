@@ -101,8 +101,8 @@ export default function ProductDetail() {
       if (secs === 0) setInvoiceExpired(true)
     }
     tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
+    const timerId = setInterval(tick, 1000)
+    return () => clearInterval(timerId)
   }, [buyStep, invoice])
 
   // ── Poll order status while Lightning invoice is active (BTCPay auto-settle) ─
@@ -833,6 +833,9 @@ export default function ProductDetail() {
                     Track Order
                   </button>
                 </div>
+                <p className="text-xs text-gray-600">
+                  Once marked delivered, you can confirm receipt or raise a dispute from My Orders.
+                </p>
               </div>
 
               {/* Rating form */}

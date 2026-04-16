@@ -349,6 +349,37 @@ export interface CreateUserResponse {
   role: string
 }
 
+// ─── Payment History ──────────────────────────────────────────────────────────
+
+export type PaymentMethod = 'lightning' | 'mpesa' | 'pos' | 'unknown'
+export type PaymentRole   = 'buyer' | 'seller'
+
+export interface PaymentHistoryItem {
+  order_id: string
+  product_title: string
+  counterparty_name: string
+  role: PaymentRole
+  quantity: string
+  unit: string
+  total_kes: string
+  total_sats: number | null
+  order_status: string
+  payment_method: PaymentMethod
+  payment_status: string | null
+  payment_ref: string | null
+  order_created_at: string
+  payment_settled_at: string | null
+}
+
+export interface PaymentHistoryResponse {
+  items: PaymentHistoryItem[]
+  total_count: number
+  page: number
+  page_size: number
+  all_time_kes: string
+  all_time_count: number
+}
+
 // ─── Analytics ────────────────────────────────────────────────────────────────
 
 export interface AnalyticsResponse {

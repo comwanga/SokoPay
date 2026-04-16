@@ -614,6 +614,167 @@ pub async fn verify_ln_address(
     Ok(Json(info))
 }
 
+// ── Payment history ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PaymentHistoryQuery {
+    /// "buyer" (payments sent) or "seller" (payments received)
+    pub role: Option<String>,
+    /// 0-based page index
+    pub page: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct PaymentHistoryItem {
+    pub order_id: Uuid,
+    pub product_title: String,
+    pub counterparty_name: String,
+    pub role: String,
+    pub quantity: String,
+    pub unit: String,
+    pub total_kes: Decimal,
+    pub total_sats: Option<i64>,
+    pub order_status: String,
+    pub payment_method: String,
+    pub payment_status: Option<String>,
+    /// Short reference: M-Pesa receipt number or first 12 chars of payment hash
+    pub payment_ref: Option<String>,
+    pub order_created_at: DateTime<Utc>,
+    pub payment_settled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaymentHistoryResponse {
+    pub items: Vec<PaymentHistoryItem>,
+    pub total_count: i64,
+    pub page: i64,
+    pub page_size: i64,
+    /// All-time total across ALL orders (not just current page)
+    pub all_time_kes: Decimal,
+    pub all_time_count: i64,
+}
+
+/// GET /api/payments/history?role=buyer|seller&page=0
+///
+/// Returns a paginated, unified payment history for the authenticated user.
+/// Each row represents one order enriched with payment method and status from
+/// either the `payments` (Lightning) or `mpesa_payments` (M-Pesa) tables.
+///
+/// `role=buyer`  → orders where the user is the buyer  (money sent)
+/// `role=seller` → orders where the user is the seller (money received)
+/// Defaults to `buyer` if omitted.
+pub async fn list_payment_history(
+    State(state): State<SharedState>,
+    claims: Claims,
+    Query(q): Query<PaymentHistoryQuery>,
+) -> AppResult<Json<PaymentHistoryResponse>> {
+    let user_id = claims
+        .farmer_id
+        .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
+
+    let role = q.role.as_deref().unwrap_or("buyer");
+    if role != "buyer" && role != "seller" {
+        return Err(AppError::BadRequest(
+            "role must be 'buyer' or 'seller'".into(),
+        ));
+    }
+
+    const PAGE_SIZE: i64 = 30;
+    let page = q.page.unwrap_or(0).max(0);
+    let offset = page * PAGE_SIZE;
+
+    // ── Paginated items ───────────────────────────────────────────────────────
+    let items: Vec<PaymentHistoryItem> = sqlx::query_as(
+        r#"
+        SELECT
+            o.id                                          AS order_id,
+            o.product_title,
+            CASE WHEN $1 = 'buyer' THEN o.seller_name
+                 ELSE o.buyer_name END                   AS counterparty_name,
+            $1::TEXT                                      AS role,
+            o.quantity::TEXT                              AS quantity,
+            o.unit,
+            o.total_kes,
+            o.total_sats,
+            o.status                                      AS order_status,
+            CASE
+                WHEN mp.id IS NOT NULL THEN 'mpesa'
+                WHEN p.id  IS NOT NULL THEN 'lightning'
+                ELSE COALESCE(o.payment_method, 'unknown')
+            END                                           AS payment_method,
+            CASE
+                WHEN mp.id IS NOT NULL THEN mp.status
+                WHEN p.id  IS NOT NULL THEN p.status
+                ELSE NULL
+            END                                           AS payment_status,
+            CASE
+                WHEN mp.id IS NOT NULL THEN mp.mpesa_receipt_number
+                WHEN p.id  IS NOT NULL THEN LEFT(p.payment_hash, 12)
+                ELSE NULL
+            END                                           AS payment_ref,
+            o.created_at                                  AS order_created_at,
+            CASE
+                WHEN mp.id IS NOT NULL THEN mp.updated_at
+                WHEN p.id  IS NOT NULL THEN p.settled_at
+                ELSE NULL
+            END                                           AS payment_settled_at
+        FROM orders o
+        LEFT JOIN LATERAL (
+            SELECT id, status, payment_hash, settled_at
+            FROM payments
+            WHERE order_id = o.id
+            ORDER BY created_at DESC LIMIT 1
+        ) p  ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT id, status, mpesa_receipt_number, updated_at
+            FROM mpesa_payments
+            WHERE order_id = o.id
+            ORDER BY created_at DESC LIMIT 1
+        ) mp ON TRUE
+        WHERE ($1 = 'buyer'  AND o.buyer_id  = $2)
+           OR ($1 = 'seller' AND o.seller_id = $2)
+        ORDER BY o.created_at DESC
+        LIMIT $3 OFFSET $4
+        "#,
+    )
+    .bind(role)
+    .bind(user_id)
+    .bind(PAGE_SIZE)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await?;
+
+    // ── Total count + all-time KES sum for the current role ───────────────────
+    #[derive(FromRow)]
+    struct Totals {
+        total_count: i64,
+        all_time_kes: Decimal,
+    }
+    let totals: Totals = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*)           AS total_count,
+            COALESCE(SUM(total_kes), 0) AS all_time_kes
+        FROM orders
+        WHERE ($1 = 'buyer'  AND buyer_id  = $2)
+           OR ($1 = 'seller' AND seller_id = $2)
+        "#,
+    )
+    .bind(role)
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(PaymentHistoryResponse {
+        items,
+        total_count: totals.total_count,
+        page,
+        page_size: PAGE_SIZE,
+        all_time_kes: totals.all_time_kes,
+        all_time_count: totals.total_count,
+    }))
+}
+
 // ── Unit tests (preimage validation) ─────────────────────────────────────────
 #[cfg(test)]
 mod tests {
