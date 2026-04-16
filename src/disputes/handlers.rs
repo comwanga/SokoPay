@@ -655,7 +655,8 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
         "maxFeePercent": "2.0",
     });
 
-    match state.http
+    match state
+        .http
         .post(&pay_url)
         .header("Authorization", format!("token {}", btcpay_key))
         .json(&pay_body)
