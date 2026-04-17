@@ -138,6 +138,12 @@ pub struct ListProductsQuery {
     /// Only honoured when `sort` is "newest" or absent and no full-text search.
     /// Supersedes `page` when present.
     pub cursor: Option<String>,
+    /// Minimum price in KES (inclusive).
+    pub min_price: Option<Decimal>,
+    /// Maximum price in KES (inclusive).
+    pub max_price: Option<Decimal>,
+    /// When true, only return products with quantity_avail > 0.
+    pub in_stock: Option<bool>,
 }
 
 // ── Cursor helpers ─────────────────────────────────────────────────────────────
@@ -411,6 +417,9 @@ pub async fn list_products(
            {ships_to_clause}
            {search_clause}
            {cursor_clause}
+           AND ($12::numeric IS NULL OR p.price_kes >= $12)
+           AND ($13::numeric IS NULL OR p.price_kes <= $13)
+           AND ($14::boolean IS NULL OR ($14 = FALSE) OR p.quantity_avail > 0)
          ORDER BY {order_by}
          LIMIT $5 OFFSET $6",
     );
@@ -427,6 +436,9 @@ pub async fn list_products(
     //  $9  = ships_to
     //  $10 = cursor_ts (NULL when not using cursor)
     //  $11 = cursor_id (ignored when $10 IS NULL)
+    //  $12 = min_price
+    //  $13 = max_price
+    //  $14 = in_stock
     let rows: Vec<ProductRow> = sqlx::query_as(&sql)
         .bind(q.category.as_deref()) // $1
         .bind(q.seller_id) // $2
@@ -439,6 +451,9 @@ pub async fn list_products(
         .bind(q.ships_to.as_deref()) // $9
         .bind(cursor_data.as_ref().map(|c| c.ts)) // $10
         .bind(cursor_data.as_ref().map(|c| c.id)) // $11
+        .bind(q.min_price) // $12
+        .bind(q.max_price) // $13
+        .bind(q.in_stock) // $14
         .fetch_all(&state.db)
         .await?;
 

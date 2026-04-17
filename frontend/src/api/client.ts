@@ -330,6 +330,10 @@ export async function listProductsPage(params?: {
   country?: string
   ships_to?: string
   cursor?: string
+  sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating'
+  min_price?: number
+  max_price?: number
+  in_stock?: boolean
 }): Promise<{ items: Product[]; nextCursor: string | null }> {
   const qs = new URLSearchParams()
   if (params?.category) qs.set('category', params.category)
@@ -340,6 +344,10 @@ export async function listProductsPage(params?: {
   if (params?.country) qs.set('country', params.country)
   if (params?.ships_to) qs.set('ships_to', params.ships_to)
   if (params?.cursor) qs.set('cursor', params.cursor)
+  if (params?.sort) qs.set('sort', params.sort)
+  if (params?.min_price != null) qs.set('min_price', String(params.min_price))
+  if (params?.max_price != null) qs.set('max_price', String(params.max_price))
+  if (params?.in_stock) qs.set('in_stock', 'true')
   const str = qs.toString()
   const { data, headers } = await requestWithHeaders<Product[]>(
     `/products${str ? `?${str}` : ''}`,

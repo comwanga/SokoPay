@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Search, MapPin, Package, Globe, ChevronDown, Loader2, ShoppingCart, Check } from 'lucide-react'
+import { Search, MapPin, Package, Globe, ChevronDown, Loader2, ShoppingCart, Check, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react'
 import { listProductsPage, formatKes } from '../api/client.ts'
 import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
@@ -9,6 +9,15 @@ import { useCart } from '../context/cart.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
 import StarRating from './StarRating.tsx'
+
+type SortOption = 'newest' | 'price_asc' | 'price_desc' | 'rating'
+
+const SORT_LABELS: Record<SortOption, string> = {
+  newest: 'Newest first',
+  price_asc: 'Price: low → high',
+  price_desc: 'Price: high → low',
+  rating: 'Top rated',
+}
 
 // ── Country list (ISO alpha-2 + display name) ─────────────────────────────────
 
@@ -202,6 +211,13 @@ export default function Marketplace() {
   const [country, setCountry] = useState<string>('')
   const [scope, setScope] = useState<'country' | 'global'>('global')
 
+  // Filter panel state
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [sort, setSort] = useState<SortOption>('newest')
+  const [minPrice, setMinPrice] = useState('')
+  const [maxPrice, setMaxPrice] = useState('')
+  const [inStockOnly, setInStockOnly] = useState(false)
+
   // Cursor state for "load more" — reset when filters change
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [allProducts, setAllProducts] = useState<Product[]>([])
@@ -213,8 +229,17 @@ export default function Marketplace() {
     return () => clearTimeout(timer)
   }, [search])
 
+  const activeFilterCount = (sort !== 'newest' ? 1 : 0) + (minPrice ? 1 : 0) + (maxPrice ? 1 : 0) + (inStockOnly ? 1 : 0)
+
+  function clearFilters() {
+    setSort('newest')
+    setMinPrice('')
+    setMaxPrice('')
+    setInStockOnly(false)
+  }
+
   // Reset accumulated products when filters/search change
-  const filterKey = `${category}|${country}|${scope}|${debouncedSearch}`
+  const filterKey = `${category}|${country}|${scope}|${debouncedSearch}|${sort}|${minPrice}|${maxPrice}|${inStockOnly}`
   const prevFilterKey = useRef(filterKey)
   useEffect(() => {
     if (prevFilterKey.current !== filterKey) {
@@ -226,12 +251,16 @@ export default function Marketplace() {
   }, [filterKey])
 
   const { data, isLoading, isError, isFetching } = useQuery({
-    queryKey: ['products', category, country, scope, debouncedSearch, cursor],
+    queryKey: ['products', category, country, scope, debouncedSearch, sort, minPrice, maxPrice, inStockOnly, cursor],
     queryFn: () => listProductsPage({
       category: category || undefined,
       country: country || undefined,
       scope: country ? scope : undefined,
       q: debouncedSearch || undefined,
+      sort,
+      min_price: minPrice ? parseFloat(minPrice) : undefined,
+      max_price: maxPrice ? parseFloat(maxPrice) : undefined,
+      in_stock: inStockOnly || undefined,
       per_page: PAGE_SIZE,
       cursor,
     }),
@@ -270,7 +299,7 @@ export default function Marketplace() {
         <CountrySelector value={country} onChange={c => { setCountry(c); setScope('country') }} />
       </div>
 
-      {/* Search bar */}
+      {/* Search bar + filter button */}
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
@@ -282,6 +311,26 @@ export default function Marketplace() {
             className="input-base pl-9"
           />
         </div>
+
+        {/* Filter toggle button */}
+        <button
+          onClick={() => setFiltersOpen(v => !v)}
+          className={clsx(
+            'relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors shrink-0',
+            filtersOpen || activeFilterCount > 0
+              ? 'bg-brand-500/20 border-brand-500/40 text-brand-400'
+              : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500',
+          )}
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          Filters
+          {activeFilterCount > 0 && (
+            <span className="w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+
         {/* Scope toggle — only meaningful when a country is selected */}
         {country && (
           <div className="flex gap-0.5 bg-gray-800/60 rounded-lg p-0.5 shrink-0">
@@ -307,6 +356,84 @@ export default function Marketplace() {
           </div>
         )}
       </div>
+
+      {/* Filter panel */}
+      {filtersOpen && (
+        <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+              <ArrowUpDown className="w-3.5 h-3.5" /> Sort &amp; Filter
+            </p>
+            {activeFilterCount > 0 && (
+              <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                <X className="w-3 h-3" /> Clear all
+              </button>
+            )}
+          </div>
+
+          {/* Sort */}
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Sort by</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {(Object.entries(SORT_LABELS) as [SortOption, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setSort(key)}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors text-left',
+                    sort === key
+                      ? 'bg-brand-500/20 border-brand-500/40 text-brand-400'
+                      : 'bg-gray-900/60 border-gray-700 text-gray-400 hover:border-gray-500',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Price range */}
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Price range (KES)</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                placeholder="Min"
+                value={minPrice}
+                onChange={e => setMinPrice(e.target.value)}
+                min={0}
+                className="input-base flex-1 text-sm"
+              />
+              <span className="text-gray-600 text-xs shrink-0">to</span>
+              <input
+                type="number"
+                placeholder="Max"
+                value={maxPrice}
+                onChange={e => setMaxPrice(e.target.value)}
+                min={0}
+                className="input-base flex-1 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* In-stock toggle */}
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => setInStockOnly(v => !v)}
+              className={clsx(
+                'w-9 h-5 rounded-full transition-colors relative shrink-0',
+                inStockOnly ? 'bg-brand-500' : 'bg-gray-700',
+              )}
+            >
+              <span className={clsx(
+                'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                inStockOnly ? 'translate-x-4' : 'translate-x-0.5',
+              )} />
+            </div>
+            <span className="text-xs text-gray-300">In stock only</span>
+          </label>
+        </div>
+      )}
 
       {/* Category icon grid */}
       <div className="grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-12 gap-1.5">
