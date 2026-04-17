@@ -1,0 +1,17 @@
+[advisories]
+# RUSTSEC-2023-0071 — Marvin Attack timing side-channel in the `rsa` crate.
+#
+# No upstream fix is available as of 2026-04.
+#
+# Why this is acceptable for agri-pay:
+#   • We use jsonwebtoken with HS256 (HMAC-SHA256) exclusively.  No RSA-based
+#     JWT algorithms (RS256, PS256, etc.) are configured or accepted.
+#   • The `rsa` crate enters the tree as a transitive dependency of
+#     jsonwebtoken (for optional RSA support) and sqlx-mysql (which we do not
+#     use — our database is PostgreSQL).
+#   • The Marvin Attack requires an attacker to observe thousands of RSA
+#     decrypt/sign operations to recover a private key.  Since the RSA code
+#     path is never invoked, there is no exploitable surface.
+#
+# Re-evaluate when jsonwebtoken or sqlx publish a patched release.
+ignore = ["RUSTSEC-2023-0071"]
