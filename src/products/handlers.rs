@@ -324,22 +324,23 @@ pub async fn list_products(
     // use ts_rank for relevance ordering. Otherwise fall back to date/price sorts.
     let has_query = q.q.is_some();
     let order_by = match q.sort.as_deref() {
-        Some("rank") if has_query =>
-            "ts_rank(p.search_vector, plainto_tsquery('english', $7)) DESC, p.created_at DESC",
+        Some("rank") if has_query => {
+            "ts_rank(p.search_vector, plainto_tsquery('english', $7)) DESC, p.created_at DESC"
+        }
         Some("rating") => "COALESCE(pr.avg_rating, 0) DESC, p.created_at DESC",
         Some("price_asc") => "p.price_kes ASC",
         Some("price_desc") => "p.price_kes DESC",
         // Default: when there's a search query, rank by relevance; otherwise by date.
-        _ if has_query =>
-            "ts_rank(p.search_vector, plainto_tsquery('english', $7)) DESC, p.created_at DESC",
+        _ if has_query => {
+            "ts_rank(p.search_vector, plainto_tsquery('english', $7)) DESC, p.created_at DESC"
+        }
         _ => "p.created_at DESC, p.id DESC",
     };
 
     // Cursor pagination: only supported for created_at DESC ordering (newest + no FTS).
     // For any other sort, or when a full-text query is present, fall back to OFFSET.
-    let use_cursor = q.cursor.is_some()
-        && !has_query
-        && matches!(q.sort.as_deref(), None | Some("newest"));
+    let use_cursor =
+        q.cursor.is_some() && !has_query && matches!(q.sort.as_deref(), None | Some("newest"));
 
     let cursor_data: Option<CursorData> = q
         .cursor
@@ -370,8 +371,7 @@ pub async fn list_products(
     // Row-value comparison (a, b) < (x, y) means a < x OR (a = x AND b < y),
     // which correctly pages forward in a created_at DESC, id DESC ordering.
     // Both $10 and $11 are always referenced so PostgreSQL never sees unbound params.
-    let cursor_clause =
-        "AND ($10::timestamptz IS NULL \
+    let cursor_clause = "AND ($10::timestamptz IS NULL \
            OR p.created_at < $10 \
            OR (p.created_at = $10 AND p.id < $11))";
 
@@ -428,17 +428,17 @@ pub async fn list_products(
     //  $10 = cursor_ts (NULL when not using cursor)
     //  $11 = cursor_id (ignored when $10 IS NULL)
     let rows: Vec<ProductRow> = sqlx::query_as(&sql)
-        .bind(q.category.as_deref())           // $1
-        .bind(q.seller_id)                     // $2
-        .bind(Option::<String>::None)           // $3 placeholder
-        .bind(Option::<String>::None)           // $4 placeholder
-        .bind(fetch_limit)                     // $5
-        .bind(offset)                          // $6
-        .bind(q.q.as_deref())                  // $7
-        .bind(q.country.as_deref())            // $8
-        .bind(q.ships_to.as_deref())           // $9
-        .bind(cursor_data.as_ref().map(|c| c.ts))  // $10
-        .bind(cursor_data.as_ref().map(|c| c.id))  // $11
+        .bind(q.category.as_deref()) // $1
+        .bind(q.seller_id) // $2
+        .bind(Option::<String>::None) // $3 placeholder
+        .bind(Option::<String>::None) // $4 placeholder
+        .bind(fetch_limit) // $5
+        .bind(offset) // $6
+        .bind(q.q.as_deref()) // $7
+        .bind(q.country.as_deref()) // $8
+        .bind(q.ships_to.as_deref()) // $9
+        .bind(cursor_data.as_ref().map(|c| c.ts)) // $10
+        .bind(cursor_data.as_ref().map(|c| c.id)) // $11
         .fetch_all(&state.db)
         .await?;
 

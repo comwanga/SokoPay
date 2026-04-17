@@ -95,8 +95,7 @@ pub async fn send_message(
         )));
     }
 
-    let parties =
-        load_parties_and_check_access(&state, order_id, user_id, &claims.role).await?;
+    let parties = load_parties_and_check_access(&state, order_id, user_id, &claims.role).await?;
 
     let sender_role = if user_id == parties.seller_id {
         "seller"
@@ -133,8 +132,7 @@ pub async fn get_messages(
         .farmer_id
         .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
 
-    let parties =
-        load_parties_and_check_access(&state, order_id, user_id, &claims.role).await?;
+    let parties = load_parties_and_check_access(&state, order_id, user_id, &claims.role).await?;
 
     let messages: Vec<OrderMessage> = sqlx::query_as(
         "SELECT

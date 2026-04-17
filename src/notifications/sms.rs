@@ -19,12 +19,7 @@ use reqwest::Client;
 ///
 /// Returns `Ok(())` on a 2xx response, `Err` on network or API failure.
 /// Callers should log errors and continue — SMS is best-effort.
-pub async fn send(
-    http: &Client,
-    config: &Config,
-    to: &str,
-    message: &str,
-) -> anyhow::Result<()> {
+pub async fn send(http: &Client, config: &Config, to: &str, message: &str) -> anyhow::Result<()> {
     let (api_key, username) = match (
         config.africas_talking_api_key.as_deref(),
         config.africas_talking_username.as_deref(),

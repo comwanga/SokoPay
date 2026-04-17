@@ -8,7 +8,10 @@
 
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
-use axum::{extract::{Path, State}, Json};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use chrono::DateTime;
 use chrono::Utc;
 use rust_decimal::Decimal;
@@ -90,8 +93,8 @@ pub async fn get_storefront(
     .fetch_optional(&state.db)
     .await?;
 
-    let seller = seller
-        .ok_or_else(|| AppError::NotFound(format!("Seller {} not found", seller_id)))?;
+    let seller =
+        seller.ok_or_else(|| AppError::NotFound(format!("Seller {} not found", seller_id)))?;
 
     // ── Active products ────────────────────────────────────────────────────────
     let products: Vec<StorefrontProduct> = sqlx::query_as(

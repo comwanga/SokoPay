@@ -185,8 +185,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route("/orders/:id", delete(order_handlers::cancel_order))
         .route(
             "/orders/:id/messages",
-            get(crate::orders::messages::get_messages)
-                .post(crate::orders::messages::send_message),
+            get(crate::orders::messages::get_messages).post(crate::orders::messages::send_message),
         );
 
     // ── Payments — tight rate limit (both endpoints call external LNURL) ────────
@@ -277,8 +276,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route("/referrals/apply", post(referrals::apply_referral));
 
     // ── Price index (public) ──────────────────────────────────────────────────
-    let price_index_route =
-        Router::new().route("/price-index", get(price_index::get_price_index));
+    let price_index_route = Router::new().route("/price-index", get(price_index::get_price_index));
 
     // ── Storefront (public — no auth) ─────────────────────────────────────────
     let storefront_routes = Router::new().route(
@@ -364,7 +362,10 @@ async fn metrics_handler(State(state): State<SharedState>) -> impl IntoResponse 
     match &state.metrics {
         Some(handle) => (
             StatusCode::OK,
-            [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+            [(
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            )],
             handle.render(),
         )
             .into_response(),

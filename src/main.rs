@@ -132,7 +132,10 @@ async fn main() -> Result<()> {
         };
 
     if config.smtp_host.is_some() {
-        tracing::info!("Transactional email enabled (SMTP: {})", config.smtp_host.as_deref().unwrap_or(""));
+        tracing::info!(
+            "Transactional email enabled (SMTP: {})",
+            config.smtp_host.as_deref().unwrap_or("")
+        );
     } else {
         tracing::info!("Transactional email not configured — SMTP_HOST not set");
     }

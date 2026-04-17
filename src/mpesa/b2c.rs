@@ -50,7 +50,7 @@ async fn try_trigger_disbursement(state: &SharedState, order_id: Uuid) -> AppRes
         total_kes: Decimal,
         #[allow(dead_code)]
         payment_method: Option<String>,
-        seller_phone: Option<String>,    // farmers.mpesa_phone
+        seller_phone: Option<String>, // farmers.mpesa_phone
         seller_name: String,
     }
 
@@ -99,14 +99,13 @@ async fn try_trigger_disbursement(state: &SharedState, order_id: Uuid) -> AppRes
     }
 
     // Update order with commission info
-    let _ = sqlx::query(
-        "UPDATE orders SET commission_kes = $2, commission_rate = $3 WHERE id = $1",
-    )
-    .bind(order_id)
-    .bind(commission_kes)
-    .bind(commission_rate)
-    .execute(&state.db)
-    .await;
+    let _ =
+        sqlx::query("UPDATE orders SET commission_kes = $2, commission_rate = $3 WHERE id = $1")
+            .bind(order_id)
+            .bind(commission_kes)
+            .bind(commission_rate)
+            .execute(&state.db)
+            .await;
 
     // ── 3. Insert disbursement record ─────────────────────────────────────────
     // Use ON CONFLICT DO NOTHING for idempotency — if this fires twice (e.g.
@@ -252,13 +251,12 @@ async fn try_trigger_disbursement(state: &SharedState, order_id: Uuid) -> AppRes
                 error           = %e,
                 "B2C payout request failed"
             );
-            let _ = sqlx::query(
-                "UPDATE disbursements SET status = 'failed', notes = $2 WHERE id = $1",
-            )
-            .bind(disbursement_id)
-            .bind(e.to_string())
-            .execute(&state.db)
-            .await;
+            let _ =
+                sqlx::query("UPDATE disbursements SET status = 'failed', notes = $2 WHERE id = $1")
+                    .bind(disbursement_id)
+                    .bind(e.to_string())
+                    .execute(&state.db)
+                    .await;
         }
     }
 
@@ -286,14 +284,13 @@ pub async fn b2c_result(
     );
 
     // Find the disbursement row by conversation_id
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM disbursements WHERE b2c_conversation_id = $1",
-    )
-    .bind(&result.conversation_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM disbursements WHERE b2c_conversation_id = $1")
+            .bind(&result.conversation_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
 
     let (disbursement_id,) = match row {
         Some(r) => r,

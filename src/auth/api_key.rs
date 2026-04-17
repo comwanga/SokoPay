@@ -10,11 +10,7 @@
 use crate::auth::jwt::{Claims, Role};
 use crate::error::AppError;
 use crate::state::SharedState;
-use axum::{
-    async_trait,
-    extract::FromRequestParts,
-    http::request::Parts,
-};
+use axum::{async_trait, extract::FromRequestParts, http::request::Parts};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -75,12 +71,10 @@ impl FromRequestParts<SharedState> for ApiKeyClaims {
         let pool = state.db.clone();
         let key_id = row.id;
         tokio::spawn(async move {
-            let _ = sqlx::query(
-                "UPDATE api_keys SET last_used_at = NOW() WHERE id = $1",
-            )
-            .bind(key_id)
-            .execute(&pool)
-            .await;
+            let _ = sqlx::query("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1")
+                .bind(key_id)
+                .execute(&pool)
+                .await;
         });
 
         // Build Claims matching the farmer's identity.

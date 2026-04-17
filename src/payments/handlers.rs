@@ -405,13 +405,11 @@ pub async fn create_invoice(
     }
 
     // Stamp the sats amount and payment method on the order for display/history.
-    sqlx::query(
-        "UPDATE orders SET total_sats = $2, payment_method = 'lightning' WHERE id = $1",
-    )
-    .bind(body.order_id)
-    .bind(amount_sats)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("UPDATE orders SET total_sats = $2, payment_method = 'lightning' WHERE id = $1")
+        .bind(body.order_id)
+        .bind(amount_sats)
+        .execute(&state.db)
+        .await?;
 
     Ok((
         StatusCode::CREATED,

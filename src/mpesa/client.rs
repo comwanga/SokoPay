@@ -401,9 +401,10 @@ impl MpesaClient {
             )));
         }
 
-        let b2c: B2cResponse = resp.json().await.map_err(|e| {
-            AppError::Internal(anyhow::anyhow!("Daraja B2C parse error: {}", e))
-        })?;
+        let b2c: B2cResponse = resp
+            .json()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Daraja B2C parse error: {}", e)))?;
 
         if b2c.response_code != "0" {
             return Err(AppError::Internal(anyhow::anyhow!(

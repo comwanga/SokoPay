@@ -14,21 +14,15 @@
 
 use crate::config::Config;
 use lettre::{
-    message::header::ContentType,
-    transport::smtp::authentication::Credentials,
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::header::ContentType, transport::smtp::authentication::Credentials, AsyncSmtpTransport,
+    AsyncTransport, Message, Tokio1Executor,
 };
 
 /// Send a plain-text email.
 ///
 /// Returns `Ok(())` on successful submission to the SMTP relay.
 /// Returns `Err` if SMTP is unconfigured or transmission fails.
-pub async fn send_text(
-    config: &Config,
-    to: &str,
-    subject: &str,
-    body: &str,
-) -> anyhow::Result<()> {
+pub async fn send_text(config: &Config, to: &str, subject: &str, body: &str) -> anyhow::Result<()> {
     let (host, user, pass, from) = match (
         config.smtp_host.as_deref(),
         config.smtp_user.as_deref(),
@@ -60,12 +54,7 @@ pub async fn send_text(
 }
 
 /// Fire-and-forget email helper: logs errors, never panics.
-pub fn send_background(
-    config: Config,
-    to: String,
-    subject: String,
-    body: String,
-) {
+pub fn send_background(config: Config, to: String, subject: String, body: String) {
     if config.smtp_host.is_none() {
         return; // silent no-op when SMTP is not configured
     }
@@ -79,17 +68,22 @@ pub fn send_background(
 
 // ── Message templates ─────────────────────────────────────────────────────────
 
-pub fn order_confirmed_seller(seller_name: &str, product_title: &str, total_kes: &str) -> (String, String) {
-    let subject = format!("SokoPay: Order for '{}' confirmed", truncate(product_title, 40));
+pub fn order_confirmed_seller(
+    seller_name: &str,
+    product_title: &str,
+    total_kes: &str,
+) -> (String, String) {
+    let subject = format!(
+        "SokoPay: Order for '{}' confirmed",
+        truncate(product_title, 40)
+    );
     let body = format!(
         "Hi {},\n\n\
          Great news! Your order for '{}' has been confirmed by the buyer.\n\n\
          Amount: KES {}\n\
          Your payout (minus 2.5% commission) is being processed.\n\n\
          — The SokoPay Team",
-        seller_name,
-        product_title,
-        total_kes,
+        seller_name, product_title, total_kes,
     );
     (subject, body)
 }

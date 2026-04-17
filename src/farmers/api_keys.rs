@@ -103,9 +103,9 @@ pub async fn create_api_key(
         ));
     }
 
-    let scopes = body.scopes.unwrap_or_else(|| {
-        vec!["read:products".into(), "read:orders".into()]
-    });
+    let scopes = body
+        .scopes
+        .unwrap_or_else(|| vec!["read:products".into(), "read:orders".into()]);
     validate_scopes(&scopes)?;
 
     let raw = generate_raw_key();

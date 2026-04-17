@@ -60,18 +60,14 @@ fn random_code() -> String {
 }
 
 /// Fetch existing code or insert a freshly generated one (retries on collision).
-async fn ensure_referral_code(
-    pool: &sqlx::PgPool,
-    farmer_id: Uuid,
-) -> AppResult<String> {
+async fn ensure_referral_code(pool: &sqlx::PgPool, farmer_id: Uuid) -> AppResult<String> {
     // Fast path: code already set.
-    if let Some(code) = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT referral_code FROM farmers WHERE id = $1",
-    )
-    .bind(farmer_id)
-    .fetch_optional(pool)
-    .await?
-    .flatten()
+    if let Some(code) =
+        sqlx::query_scalar::<_, Option<String>>("SELECT referral_code FROM farmers WHERE id = $1")
+            .bind(farmer_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten()
     {
         return Ok(code);
     }
@@ -132,7 +128,10 @@ pub async fn get_my_referral_code(
         code
     );
 
-    Ok(Json(ReferralCodeResponse { referral_code: code, share_url }))
+    Ok(Json(ReferralCodeResponse {
+        referral_code: code,
+        share_url,
+    }))
 }
 
 /// GET /api/referrals/stats
@@ -153,12 +152,10 @@ pub async fn get_referral_stats(
         code
     );
 
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM referrals WHERE referrer_id = $1",
-    )
-    .bind(farmer_id)
-    .fetch_one(&state.db)
-    .await?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM referrals WHERE referrer_id = $1")
+        .bind(farmer_id)
+        .fetch_one(&state.db)
+        .await?;
 
     let recent: Vec<ReferralEntry> = sqlx::query_as(
         "SELECT f.name AS referred_name, r.created_at
@@ -209,8 +206,8 @@ pub async fn apply_referral(
     .fetch_optional(&state.db)
     .await?;
 
-    let referrer_id = referrer_id
-        .ok_or_else(|| AppError::NotFound("Referral code not found".into()))?;
+    let referrer_id =
+        referrer_id.ok_or_else(|| AppError::NotFound("Referral code not found".into()))?;
 
     // ON CONFLICT DO NOTHING makes this idempotent.
     sqlx::query(
