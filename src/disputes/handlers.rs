@@ -154,6 +154,43 @@ pub async fn open_dispute(
 
     crate::metrics::record_dispute_opened();
 
+    // Notify both buyer and seller about the dispute (fire-and-forget).
+    #[derive(sqlx::FromRow)]
+    struct PartyInfo {
+        seller_email: Option<String>,
+        seller_name: String,
+        buyer_email: Option<String>,
+        buyer_name: String,
+        product_title: String,
+    }
+    if let Ok(Some(info)) = sqlx::query_as::<_, PartyInfo>(
+        "SELECT sf.email AS seller_email, sf.name AS seller_name,
+                bf.email AS buyer_email,  bf.name AS buyer_name,
+                p.title  AS product_title
+         FROM orders o
+         JOIN farmers sf  ON sf.id = o.seller_id
+         JOIN farmers bf  ON bf.id = o.buyer_id
+         JOIN products p  ON p.id  = o.product_id
+         WHERE o.id = $1",
+    )
+    .bind(order_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        let cfg = state.config.clone();
+        let title = info.product_title.clone();
+        if let Some(email) = info.seller_email {
+            let (subj, body_text) =
+                crate::notifications::email::dispute_opened(&info.seller_name, &title, true);
+            crate::notifications::email::send_background(cfg.clone(), email, subj, body_text);
+        }
+        if let Some(email) = info.buyer_email {
+            let (subj, body_text) =
+                crate::notifications::email::dispute_opened(&info.buyer_name, &title, false);
+            crate::notifications::email::send_background(cfg, email, subj, body_text);
+        }
+    }
+
     Ok(Json(serde_json::json!({
         "disputed": true,
         "order_id": order_id,

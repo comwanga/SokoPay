@@ -708,3 +708,87 @@ export function buyerNextStatus(current: string): OrderStatus | null {
   if (current === 'delivered') return 'confirmed'
   return null
 }
+
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
+export interface ApiKey {
+  id: string
+  name: string
+  key_prefix: string
+  scopes: string[]
+  last_used_at: string | null
+  created_at: string
+}
+
+export interface CreateApiKeyResponse {
+  id: string
+  name: string
+  raw_key: string
+  key_prefix: string
+  scopes: string[]
+  created_at: string
+}
+
+export interface CreateApiKeyPayload {
+  name: string
+  scopes: string[]
+}
+
+export async function listApiKeys(): Promise<ApiKey[]> {
+  return request<ApiKey[]>('/api-keys')
+}
+
+export async function createApiKey(payload: CreateApiKeyPayload): Promise<CreateApiKeyResponse> {
+  return request<CreateApiKeyResponse>('/api-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function revokeApiKey(id: string): Promise<void> {
+  await request<void>(`/api-keys/${id}`, { method: 'DELETE' })
+}
+
+// ─── Referrals ────────────────────────────────────────────────────────────────
+
+export interface ReferralCodeResponse {
+  referral_code: string
+  referral_link: string
+}
+
+export interface ReferralStats {
+  referral_code: string
+  total_referrals: number
+}
+
+export async function getMyReferralCode(): Promise<ReferralCodeResponse> {
+  return request<ReferralCodeResponse>('/referrals/my-code')
+}
+
+export async function getReferralStats(): Promise<ReferralStats> {
+  return request<ReferralStats>('/referrals/stats')
+}
+
+export async function applyReferral(referral_code: string): Promise<{ applied: boolean }> {
+  return request<{ applied: boolean }>('/referrals/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ referral_code }),
+  })
+}
+
+// ─── Price Index ──────────────────────────────────────────────────────────────
+
+export interface CategoryPriceStats {
+  category: string
+  product_count: number
+  avg_price_kes: number
+  min_price_kes: number
+  max_price_kes: number
+  median_price_kes: number
+}
+
+export async function getPriceIndex(): Promise<CategoryPriceStats[]> {
+  return request<CategoryPriceStats[]>('/price-index')
+}

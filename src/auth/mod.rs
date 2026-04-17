@@ -1,8 +1,11 @@
+pub mod api_key;
 pub mod jwt;
 pub mod middleware;
 pub mod nostr;
+pub mod refresh;
 
 pub use nostr::{nostr_login, pubkey_login};
+pub use refresh::refresh_token;
 
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
@@ -103,7 +106,7 @@ pub async fn login(
 
     // 3. Farmer phone + PIN login (phone may be NULL for Nostr-only accounts)
     let farmer: Option<FarmerAuthRow> =
-        sqlx::query_as("SELECT id, pin_hash FROM farmers WHERE phone = $1")
+        sqlx::query_as("SELECT id, pin_hash FROM farmers WHERE phone = $1 AND deleted_at IS NULL")
             .bind(&body.username)
             .fetch_optional(&state.db)
             .await?;

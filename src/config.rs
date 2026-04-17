@@ -68,6 +68,13 @@ pub struct Config {
     /// Alphanumeric sender ID registered in the AT dashboard (e.g. "SokoPay").
     /// Optional — if absent, the default shortcode is used.
     pub africas_talking_sender_id: Option<String>,
+    // SMTP transactional email (optional)
+    pub smtp_host: Option<String>,
+    pub smtp_port: Option<u16>,
+    pub smtp_user: Option<String>,
+    pub smtp_pass: Option<String>,
+    /// "SokoPay <noreply@sokopay.app>" style From address.
+    pub email_from: Option<String>,
 }
 
 impl Config {
@@ -232,6 +239,14 @@ impl Config {
             africas_talking_sender_id: std::env::var("AFRICAS_TALKING_SENDER_ID")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            smtp_host: std::env::var("SMTP_HOST").ok().filter(|s| !s.is_empty()),
+            smtp_port: std::env::var("SMTP_PORT")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse().ok()),
+            smtp_user: std::env::var("SMTP_USER").ok().filter(|s| !s.is_empty()),
+            smtp_pass: std::env::var("SMTP_PASS").ok().filter(|s| !s.is_empty()),
+            email_from: std::env::var("EMAIL_FROM").ok().filter(|s| !s.is_empty()),
         })
     }
 }

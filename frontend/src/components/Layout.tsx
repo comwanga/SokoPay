@@ -145,6 +145,7 @@ function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
         </p>
         <SideNavItem to="/" icon={<ShoppingBag />} label={t('nav.browse')} end onClick={onNav} />
         <SideNavItem to="/orders" icon={<Package />} label={t('nav.orders')} onClick={onNav} />
+        <SideNavItem to="/price-index" icon={<TrendingUp />} label={t('nav.price_index')} onClick={onNav} />
 
         <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
           {t('nav.section.selling')}

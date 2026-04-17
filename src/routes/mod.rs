@@ -1,12 +1,15 @@
 use crate::auth;
 use crate::disputes::handlers as dispute_handlers;
+use crate::farmers::api_keys as farmer_api_keys;
 use crate::farmers::handlers as farmer_handlers;
+use crate::farmers::referrals;
 use crate::lnurl::server as lnurl_server;
 use crate::mpesa::handlers as mpesa_handlers;
 use crate::oracle::handlers as oracle_handlers;
 use crate::orders::handlers as order_handlers;
 use crate::payments::handlers as payment_handlers;
 use crate::products::handlers as product_handlers;
+use crate::products::price_index;
 use crate::ratings::handlers as rating_handlers;
 use crate::state::SharedState;
 use axum::{
@@ -259,6 +262,24 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
             get(crate::mpesa::b2c::list_disbursements),
         );
 
+    // ── API keys (farmer self-service) ───────────────────────────────────────
+    let api_key_routes = Router::new()
+        .route(
+            "/api-keys",
+            get(farmer_api_keys::list_api_keys).post(farmer_api_keys::create_api_key),
+        )
+        .route("/api-keys/:id", delete(farmer_api_keys::revoke_api_key));
+
+    // ── Referral program ──────────────────────────────────────────────────────
+    let referral_routes = Router::new()
+        .route("/referrals/my-code", get(referrals::get_my_referral_code))
+        .route("/referrals/stats", get(referrals::get_referral_stats))
+        .route("/referrals/apply", post(referrals::apply_referral));
+
+    // ── Price index (public) ──────────────────────────────────────────────────
+    let price_index_route =
+        Router::new().route("/price-index", get(price_index::get_price_index));
+
     // ── Storefront (public — no auth) ─────────────────────────────────────────
     let storefront_routes = Router::new().route(
         "/storefront/:id",
@@ -290,6 +311,9 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .merge(dispute_routes)
         .merge(oracle_routes)
         .merge(storefront_routes)
+        .merge(api_key_routes)
+        .merge(referral_routes)
+        .merge(price_index_route)
         .merge(health_route)
         .merge(metrics_route)
         .layer(GovernorLayer {

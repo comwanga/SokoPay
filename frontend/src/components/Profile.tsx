@@ -9,6 +9,8 @@ import { updateProfile, verifyLnAddress, isFediContext } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
 import type { LnVerifyResponse } from '../types'
 import clsx from 'clsx'
+import ApiKeyManager from './ApiKeyManager.tsx'
+import ReferralProgram from './ReferralProgram.tsx'
 
 function Field({
   label,
@@ -468,6 +470,16 @@ export default function Profile() {
           </button>
         </div>
       </form>
+
+      {/* Referral program */}
+      <div className="border-t border-gray-800 pt-6">
+        <ReferralProgram />
+      </div>
+
+      {/* Developer API keys */}
+      <div className="border-t border-gray-800 pt-6">
+        <ApiKeyManager />
+      </div>
     </div>
   )
 }

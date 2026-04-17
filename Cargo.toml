@@ -81,5 +81,8 @@ base64 = "0.21"
 metrics = "0.23"
 metrics-exporter-prometheus = "0.15"
 
+# Transactional email (SMTP)
+lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "smtp-transport", "builder"] }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

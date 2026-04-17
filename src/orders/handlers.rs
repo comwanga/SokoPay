@@ -521,6 +521,28 @@ pub async fn update_order_status(
         tokio::spawn(async move {
             crate::mpesa::b2c::trigger_disbursement(sc, order_id).await;
         });
+
+        // Email the seller: their order has been confirmed by the buyer.
+        if let Ok(Some(seller_email)) = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT email FROM farmers WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(order.seller_id)
+        .fetch_optional(&state.db)
+        .await
+        .map(|r| r.flatten())
+        {
+            let (subj, body_text) = crate::notifications::email::order_confirmed_seller(
+                &order.seller_name,
+                &order.product_title,
+                &order.total_kes.to_string(),
+            );
+            crate::notifications::email::send_background(
+                state.config.clone(),
+                seller_email,
+                subj,
+                body_text,
+            );
+        }
     }
 
     // Send a Nostr DM to the other party so they know the order changed.

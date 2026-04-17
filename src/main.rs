@@ -131,6 +131,12 @@ async fn main() -> Result<()> {
             None
         };
 
+    if config.smtp_host.is_some() {
+        tracing::info!("Transactional email enabled (SMTP: {})", config.smtp_host.as_deref().unwrap_or(""));
+    } else {
+        tracing::info!("Transactional email not configured — SMTP_HOST not set");
+    }
+
     let state = Arc::new(AppState {
         db: pool.clone(),
         config: config.clone(),

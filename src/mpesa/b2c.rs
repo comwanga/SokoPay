@@ -335,6 +335,32 @@ pub async fn b2c_result(
             receipt         = ?receipt,
             "Seller disbursement paid"
         );
+
+        // Fire-and-forget email to the seller confirming their M-Pesa payout.
+        if let Ok(Some((Some(email), seller_name, net_kes))) =
+            sqlx::query_as::<_, (Option<String>, String, rust_decimal::Decimal)>(
+                "SELECT f.email, f.name, d.net_kes
+                 FROM disbursements d
+                 JOIN farmers f ON f.id = d.seller_id
+                 WHERE d.id = $1",
+            )
+            .bind(disbursement_id)
+            .fetch_optional(&state.db)
+            .await
+        {
+            let receipt_str = receipt.as_deref().unwrap_or("N/A");
+            let (subj, body_text) = crate::notifications::email::disbursement_paid(
+                &seller_name,
+                &net_kes.to_string(),
+                receipt_str,
+            );
+            crate::notifications::email::send_background(
+                state.config.clone(),
+                email,
+                subj,
+                body_text,
+            );
+        }
     } else {
         let _ = sqlx::query(
             "UPDATE disbursements
