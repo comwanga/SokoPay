@@ -17,6 +17,7 @@ use cbc::{
     Encryptor,
 };
 use futures_util::SinkExt; // provides .send() on WebSocketStream
+use rand::RngCore;
 use secp256k1::{Keypair, Message, PublicKey, Secp256k1, SecretKey};
 use serde::Serialize;
 use sha2::Digest;
@@ -208,19 +209,17 @@ async fn build_and_publish(
 
 /// Encrypts `plaintext` with AES-256-CBC using the given 32-byte key.
 ///
-/// The IV is derived from SHA-256(key ‖ nanosecond_timestamp). This gives a
-/// unique IV per message without requiring the `rand` crate. For the highest
-/// security, swap in a random IV via `rand::thread_rng().fill_bytes(&mut iv)`.
+/// The IV is generated with `OsRng` (cryptographically secure PRNG) so each
+/// encryption call produces an independent, unpredictable IV. This prevents
+/// IV-reuse attacks that would arise from using a deterministic source like a
+/// timestamp.
 ///
 /// Output format (NIP-04): `<base64_ciphertext>?iv=<base64_iv>`
 fn nip04_encrypt(key: &[u8; 32], plaintext: &[u8]) -> anyhow::Result<String> {
-    // Derive a unique IV from the key and current nanosecond timestamp.
-    // SHA-256 output is 32 bytes; we take the first 16 as the 128-bit IV.
-    let ts = unix_nanos().to_le_bytes();
-    let iv_hash = sha2::Sha256::digest([key.as_ref(), ts.as_ref()].concat());
-    let iv: [u8; 16] = iv_hash[..16]
-        .try_into()
-        .expect("SHA-256 output is always 32 bytes");
+    // Generate a random 128-bit IV. OsRng delegates to the OS CSPRNG
+    // (getrandom on Linux, CryptGenRandom on Windows).
+    let mut iv = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut iv);
 
     // Encrypt with AES-256-CBC + PKCS7 padding.
     // The `cbc` crate handles padding internally — no manual byte shuffling needed.
@@ -282,13 +281,6 @@ fn unix_now() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
-}
-
-fn unix_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
 }
 
 /// Standard (non-URL-safe) base64 encoding without an external crate.

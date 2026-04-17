@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   ShoppingBag, Package, Store, TrendingUp, AlertCircle,
   LogOut, Plus, UserCircle, LogIn, Menu, X, Shield, ArrowLeftRight, History, Settings,
+  ShoppingCart,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
@@ -10,7 +11,9 @@ import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
 import { useAuth } from '../context/auth.tsx'
 import { useDisplaySettings } from '../context/displaySettings.tsx'
 import { useTranslation } from '../i18n/index.tsx'
+import { useCart } from '../context/cart.tsx'
 import CurrencyConverter from './CurrencyConverter.tsx'
+import CartDrawer from './CartDrawer.tsx'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
@@ -117,14 +120,39 @@ function SideNavItem({ to, icon, label, end, onClick }: NavItemProps) {
   )
 }
 
+// ── Cart button for desktop sidebar ──────────────────────────────────────────
+
+function CartButton({ onOpenCart }: { onOpenCart: () => void }) {
+  const { totalCount } = useCart()
+  return (
+    <div className="px-3 py-2 border-t border-gray-800">
+      <button
+        onClick={onOpenCart}
+        className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-gray-800"
+      >
+        <span className="w-5 h-5 shrink-0 relative">
+          <ShoppingCart className="w-5 h-5" />
+          {totalCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-brand-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+              {totalCount > 9 ? '9+' : totalCount}
+            </span>
+          )}
+        </span>
+        <span>Cart{totalCount > 0 ? ` (${totalCount})` : ''}</span>
+      </button>
+    </div>
+  )
+}
+
 // ── Sidebar content (shared between desktop aside and mobile drawer) ───────────
 
 interface SidebarContentProps {
   onNav?: () => void
   onOpenConverter: () => void
+  onOpenCart: () => void
 }
 
-function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
+function SidebarContent({ onNav, onOpenConverter, onOpenCart }: SidebarContentProps) {
   const navigate = useNavigate()
   const { authed, connecting, connect, isAdmin } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
@@ -224,6 +252,9 @@ function SidebarContent({ onNav, onOpenConverter }: SidebarContentProps) {
         </button>
       )}
 
+      {/* Cart button */}
+      <CartButton onOpenCart={onOpenCart} />
+
       {/* BTC Rate + converter + sign out */}
       <div className="px-4 py-4 border-t border-gray-800 space-y-3">
         <div>
@@ -311,6 +342,8 @@ function BottomNav() {
 export default function Layout({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen]       = useState(false)
   const [converterOpen, setConverterOpen] = useState(false)
+  const [cartOpen, setCartOpen]           = useState(false)
+  const { totalCount } = useCart()
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
@@ -327,7 +360,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <p className="text-[11px] text-gray-500 leading-tight">Buy & Sell Anything</p>
           </div>
         </div>
-        <SidebarContent onOpenConverter={() => setConverterOpen(true)} />
+        <SidebarContent onOpenConverter={() => setConverterOpen(true)} onOpenCart={() => setCartOpen(true)} />
       </aside>
 
       {/* ── Mobile drawer overlay ────────────────────────────────────────── */}
@@ -359,7 +392,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <X className="w-5 h-5" />
           </button>
         </div>
-        <SidebarContent onNav={() => setDrawerOpen(false)} onOpenConverter={() => { setDrawerOpen(false); setConverterOpen(true) }} />
+        <SidebarContent onNav={() => setDrawerOpen(false)} onOpenConverter={() => { setDrawerOpen(false); setConverterOpen(true) }} onOpenCart={() => { setDrawerOpen(false); setCartOpen(true) }} />
       </aside>
 
       {/* ── Right-hand column (mobile top bar + main content) ───────────── */}
@@ -387,6 +420,18 @@ export default function Layout({ children }: { children: ReactNode }) {
             >
               <ArrowLeftRight className="w-3.5 h-3.5" />
             </button>
+            <button
+              onClick={() => setCartOpen(true)}
+              className="relative p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors shrink-0"
+              title="Cart"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              {totalCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-brand-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {totalCount > 9 ? '9+' : totalCount}
+                </span>
+              )}
+            </button>
           </div>
         </header>
 
@@ -403,6 +448,9 @@ export default function Layout({ children }: { children: ReactNode }) {
       {converterOpen && (
         <CurrencyConverter onClose={() => setConverterOpen(false)} />
       )}
+
+      {/* Cart drawer */}
+      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
     </div>
   )
 }

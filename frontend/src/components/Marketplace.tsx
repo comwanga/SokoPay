@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Search, MapPin, Package, Globe, ChevronDown, Loader2 } from 'lucide-react'
+import { Search, MapPin, Package, Globe, ChevronDown, Loader2, ShoppingCart, Check } from 'lucide-react'
 import { listProductsPage, formatKes } from '../api/client.ts'
 import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
+import { useCart } from '../context/cart.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
 import StarRating from './StarRating.tsx'
@@ -29,10 +30,21 @@ const COUNTRIES = [
 // ── Product card ──────────────────────────────────────────────────────────────
 
 function ProductCard({ product }: { product: Product }) {
-  const navigate = useNavigate()
-  const { t } = useTranslation()
+  const navigate    = useNavigate()
+  const { t }       = useTranslation()
+  const { addItem, items } = useCart()
+  const [added, setAdded]  = useState(false)
+
   const primaryImage = product.images.find(i => i.is_primary) ?? product.images[0]
-  const qty = parseFloat(product.quantity_avail)
+  const qty          = parseFloat(product.quantity_avail)
+  const inCart       = items.some(i => i.product.id === product.id)
+
+  function handleAddToCart(e: React.MouseEvent) {
+    e.stopPropagation()
+    addItem(product, 1)
+    setAdded(true)
+    setTimeout(() => setAdded(false), 1500)
+  }
 
   return (
     <button
@@ -99,6 +111,25 @@ function ProductCard({ product }: { product: Product }) {
             {t('market.only_x_left', { qty, unit: product.unit })}
           </p>
         )}
+
+        {/* Add to cart button */}
+        <button
+          onClick={handleAddToCart}
+          className={clsx(
+            'mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+            added || inCart
+              ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
+              : 'bg-gray-700/60 text-gray-300 hover:bg-gray-700 border border-transparent',
+          )}
+        >
+          {added ? (
+            <><Check className="w-3.5 h-3.5" /> Added</>
+          ) : inCart ? (
+            <><ShoppingCart className="w-3.5 h-3.5" /> In cart</>
+          ) : (
+            <><ShoppingCart className="w-3.5 h-3.5" /> Add to cart</>
+          )}
+        </button>
       </div>
     </button>
   )

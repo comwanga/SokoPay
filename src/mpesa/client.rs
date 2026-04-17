@@ -323,4 +323,163 @@ impl MpesaClient {
 
         Ok(stk)
     }
+
+    // ── B2C (Business to Customer) ────────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    /// Send money from the business shortcode to a customer's M-Pesa wallet.
+    ///
+    /// Used for seller payouts after successful delivery, and for refunds when
+    /// an admin resolves a dispute in the buyer's favour.
+    ///
+    /// - `phone`: E.164 without `+`, e.g. `254712345678`
+    /// - `amount_kes`: whole shillings (Daraja rejects fractional amounts for B2C)
+    /// - `initiator_name`: the Daraja API operator username
+    /// - `security_credential`: initiator password encrypted with Safaricom's
+    ///   public certificate (pre-computed; see MPESA_B2C_SECURITY_CREDENTIAL in config)
+    /// - `result_url`: Daraja POSTs the outcome to this HTTPS URL
+    /// - `timeout_url`: Daraja POSTs here when the request sits in queue too long
+    /// - `occasion`: short label shown in transaction history (≤100 chars)
+    pub async fn b2c_pay(
+        &self,
+        phone: &str,
+        amount_kes: u64,
+        initiator_name: &str,
+        security_credential: &str,
+        result_url: &str,
+        timeout_url: &str,
+        occasion: &str,
+    ) -> AppResult<B2cResponse> {
+        let token = self.get_token().await?;
+
+        let remarks = if occasion.len() > 100 {
+            &occasion[..100]
+        } else {
+            occasion
+        };
+
+        let body = serde_json::json!({
+            "InitiatorName":       initiator_name,
+            "SecurityCredential":  security_credential,
+            "CommandID":           "BusinessPayment",
+            "Amount":              amount_kes,
+            "PartyA":              self.shortcode,
+            "PartyB":              phone,
+            "Remarks":             remarks,
+            "QueueTimeOutURL":     timeout_url,
+            "ResultURL":           result_url,
+            "Occasion":            remarks,
+        });
+
+        let url = format!("{}/mpesa/b2c/v1/paymentrequest", self.env.base_url());
+
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(&token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Daraja B2C request failed: {}", e)))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_default();
+            let msg = serde_json::from_str::<serde_json::Value>(&body_text)
+                .ok()
+                .and_then(|v| {
+                    v.get("errorMessage")
+                        .or_else(|| v.get("ResultDesc"))
+                        .and_then(|m| m.as_str())
+                        .map(str::to_owned)
+                })
+                .unwrap_or(body_text);
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "Daraja B2C returned {}: {}",
+                status,
+                msg
+            )));
+        }
+
+        let b2c: B2cResponse = resp.json().await.map_err(|e| {
+            AppError::Internal(anyhow::anyhow!("Daraja B2C parse error: {}", e))
+        })?;
+
+        if b2c.response_code != "0" {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "Daraja B2C error (code {}): {}",
+                b2c.response_code,
+                b2c.response_description
+            )));
+        }
+
+        Ok(b2c)
+    }
+}
+
+// ── B2C response types ────────────────────────────────────────────────────────
+
+/// Response from `POST mpesa/b2c/v1/paymentrequest` on success.
+#[derive(Debug, Deserialize)]
+pub struct B2cResponse {
+    #[serde(rename = "ConversationID")]
+    pub conversation_id: String,
+    #[serde(rename = "OriginatorConversationID")]
+    pub originator_conversation_id: String,
+    #[serde(rename = "ResponseCode")]
+    pub response_code: String,
+    #[serde(rename = "ResponseDescription")]
+    pub response_description: String,
+}
+
+/// B2C result callback body (Daraja POSTs this to `result_url`).
+#[derive(Debug, Deserialize)]
+pub struct B2cResult {
+    #[serde(rename = "Result")]
+    pub result: B2cResultBody,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct B2cResultBody {
+    #[serde(rename = "ResultType")]
+    #[allow(dead_code)]
+    pub result_type: i32,
+    #[serde(rename = "ResultCode")]
+    pub result_code: i32,
+    #[serde(rename = "ResultDesc")]
+    pub result_desc: String,
+    #[serde(rename = "OriginatorConversationID")]
+    #[allow(dead_code)]
+    pub originator_conversation_id: String,
+    #[serde(rename = "ConversationID")]
+    pub conversation_id: String,
+    #[serde(rename = "TransactionID")]
+    pub transaction_id: String,
+    #[serde(rename = "ResultParameters")]
+    pub result_parameters: Option<B2cResultParams>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct B2cResultParams {
+    #[serde(rename = "ResultParameter")]
+    pub items: Vec<B2cResultItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct B2cResultItem {
+    #[serde(rename = "Key")]
+    pub key: String,
+    #[serde(rename = "Value")]
+    pub value: Option<serde_json::Value>,
+}
+
+impl B2cResultParams {
+    pub fn transaction_receipt(&self) -> Option<String> {
+        self.items
+            .iter()
+            .find(|i| i.key == "TransactionReceipt")
+            .and_then(|i| i.value.as_ref())
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+    }
 }

@@ -13,6 +13,7 @@ import {
 } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
 import OrderStatusSteps from './OrderStatusSteps.tsx'
+import MessageThread from './MessageThread.tsx'
 import StarRating from './StarRating.tsx'
 import clsx from 'clsx'
 import type { Order, Product } from '../types'
@@ -259,6 +260,11 @@ function IncomingOrderCard({ order }: { order: Order }) {
               </button>
             </div>
           )}
+
+          {/* Buyer ↔ seller messaging */}
+          <div className="border-t border-gray-800 pt-3">
+            <MessageThread orderId={order.id} />
+          </div>
 
           <p className="text-[11px] text-gray-600">
             {new Date(order.created_at).toLocaleString('en-KE')}

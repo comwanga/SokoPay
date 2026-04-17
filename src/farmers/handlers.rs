@@ -86,7 +86,7 @@ pub async fn list_farmers(
 
     let farmers: Vec<Farmer> = sqlx::query_as(
         "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
-         FROM farmers ORDER BY created_at DESC",
+         FROM farmers WHERE deleted_at IS NULL ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
     .await?;
@@ -152,7 +152,7 @@ pub async fn create_farmer(
 
     let farmer: Farmer = sqlx::query_as(
         "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
-         FROM farmers WHERE id = $1",
+         FROM farmers WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_one(&state.db)
@@ -173,7 +173,7 @@ pub async fn get_farmer(
 
     let farmer: Option<Farmer> = sqlx::query_as(
         "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
-         FROM farmers WHERE id = $1",
+         FROM farmers WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -202,10 +202,11 @@ pub async fn update_farmer(
         return Err(AppError::Forbidden("Admin or farmer required".into()));
     }
 
-    let exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM farmers WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.db)
-        .await?;
+    let exists: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM farmers WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
     if exists.is_none() {
         return Err(AppError::NotFound(format!("Farmer {} not found", id)));
     }
@@ -305,7 +306,7 @@ pub async fn update_farmer(
 
     let farmer: Farmer = sqlx::query_as(
         "SELECT id, name, phone, nostr_pubkey, ln_address, mpesa_phone, location_name, created_at
-         FROM farmers WHERE id = $1",
+         FROM farmers WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(id)
     .fetch_one(&state.db)
@@ -324,10 +325,13 @@ pub async fn delete_farmer(
         return Err(AppError::Forbidden("Admin only".into()));
     }
 
-    let result = sqlx::query("DELETE FROM farmers WHERE id = $1")
-        .bind(id)
-        .execute(&state.db)
-        .await?;
+    // Soft delete — preserve the row and all linked financial records.
+    // Hard DELETE would cascade to orders and products, destroying audit history.
+    let result =
+        sqlx::query("UPDATE farmers SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .execute(&state.db)
+            .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Farmer {} not found", id)));

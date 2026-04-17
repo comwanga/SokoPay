@@ -28,7 +28,7 @@ pub struct NostrEvent {
 
 async fn find_or_create_farmer(db: &sqlx::PgPool, pubkey: &str) -> AppResult<Uuid> {
     let existing: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM farmers WHERE nostr_pubkey = $1")
+        sqlx::query_scalar("SELECT id FROM farmers WHERE nostr_pubkey = $1 AND deleted_at IS NULL")
             .bind(pubkey)
             .fetch_optional(db)
             .await
@@ -142,43 +142,27 @@ pub async fn nostr_login(
     }))
 }
 
-// ── Pubkey-only login (no signature — for users who paste their npub) ─────────
+// ── Pubkey-only login — DISABLED (security: no cryptographic proof of key ownership) ──
+//
+// This endpoint previously issued JWTs to anyone who supplied a valid-looking
+// hex pubkey, with no proof they control the corresponding private key. That
+// allows impersonation of any Nostr account. Removed in Phase 0 security
+// hardening. Clients must use POST /api/auth/nostr (NIP-98 signed event).
 
 #[derive(Debug, Deserialize)]
 pub struct PubkeyLoginRequest {
-    /// 64-character lowercase hex Nostr public key (frontend decodes npub first)
+    #[allow(dead_code)]
     pub pubkey: String,
 }
 
 pub async fn pubkey_login(
-    State(state): State<SharedState>,
-    Json(body): Json<PubkeyLoginRequest>,
+    _state: State<SharedState>,
+    _body: Json<PubkeyLoginRequest>,
 ) -> AppResult<Json<LoginResponse>> {
-    let pubkey = body.pubkey.trim().to_lowercase();
-
-    if pubkey.len() != 64 || !pubkey.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(AppError::BadRequest(
-            "pubkey must be a 64-character hex string".into(),
-        ));
-    }
-
-    let farmer_id = find_or_create_farmer(&state.db, &pubkey).await?;
-
-    let sub = farmer_id.to_string();
-    let token = jwt::generate_token(
-        &state.config.jwt_secret,
-        &sub,
-        Role::Farmer,
-        Some(farmer_id),
-        state.config.jwt_expiry_hours,
-    )?;
-
-    Ok(Json(LoginResponse {
-        token,
-        role: "farmer".into(),
-        user_id: sub,
-        farmer_id: Some(farmer_id),
-    }))
+    Err(AppError::Forbidden(
+        "pubkey-only login is disabled. Use POST /api/auth/nostr with a NIP-98 signed event."
+            .into(),
+    ))
 }
 
 fn verify_schnorr(pubkey_hex: &str, event_id_hex: &str, sig_hex: &str) -> AppResult<()> {

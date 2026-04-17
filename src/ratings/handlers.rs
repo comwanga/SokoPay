@@ -93,20 +93,22 @@ pub async fn rate_product(
 
     validate_rating_request(&body)?;
 
-    // Buyer must have a confirmed order for this product
-    let confirmed_order: Option<Uuid> = sqlx::query_scalar(
+    // Verify the provided order_id is a real confirmed order by this buyer for
+    // this product. We don't just check "any confirmed order exists" — we verify
+    // the exact order_id the client claims, preventing shill ratings via fake IDs.
+    let order_verified: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM orders
-         WHERE product_id = $1 AND buyer_id = $2 AND status = 'confirmed'
-         LIMIT 1",
+         WHERE id = $1 AND product_id = $2 AND buyer_id = $3 AND status = 'confirmed'",
     )
+    .bind(body.order_id)
     .bind(product_id)
     .bind(buyer_id)
     .fetch_optional(&state.db)
     .await?;
 
-    if confirmed_order.is_none() {
+    if order_verified.is_none() {
         return Err(AppError::Forbidden(
-            "You can only rate products from confirmed orders".into(),
+            "You can only rate products from your own confirmed orders".into(),
         ));
     }
 
@@ -189,20 +191,21 @@ pub async fn rate_seller(
         return Err(AppError::BadRequest("You cannot rate yourself".into()));
     }
 
-    // Buyer must have a confirmed order with this seller
-    let confirmed_order: Option<Uuid> = sqlx::query_scalar(
+    // Verify the provided order_id is a real confirmed order by this buyer with
+    // this seller. Exact-match on order_id prevents spoofing with arbitrary UUIDs.
+    let order_verified: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM orders
-         WHERE seller_id = $1 AND buyer_id = $2 AND status = 'confirmed'
-         LIMIT 1",
+         WHERE id = $1 AND seller_id = $2 AND buyer_id = $3 AND status = 'confirmed'",
     )
+    .bind(body.order_id)
     .bind(seller_id)
     .bind(buyer_id)
     .fetch_optional(&state.db)
     .await?;
 
-    if confirmed_order.is_none() {
+    if order_verified.is_none() {
         return Err(AppError::Forbidden(
-            "You can only rate sellers from confirmed orders".into(),
+            "You can only rate sellers from your own confirmed orders".into(),
         ));
     }
 
