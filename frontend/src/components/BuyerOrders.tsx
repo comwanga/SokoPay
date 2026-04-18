@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Package, ChevronDown, ChevronUp, ThumbsUp, AlertTriangle,
   XCircle, Zap, CheckCircle, FileText, Send,
-  Smartphone, Loader2, RotateCcw,
+  Smartphone, Loader2, RotateCcw, Camera,
 } from 'lucide-react'
 import LightningInvoiceCard from './LightningInvoiceCard.tsx'
 import {
@@ -537,6 +537,31 @@ function OrderCard({ order }: { order: Order }) {
             <div className="bg-gray-800/50 rounded-lg px-3 py-2 text-xs text-gray-300">
               <span className="font-medium text-gray-400">Seller note: </span>
               {order.delivery_notes}
+            </div>
+          )}
+
+          {order.delivery_photo_url && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-gray-400 flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5" />
+                Delivery photo
+              </p>
+              <a
+                href={order.delivery_photo_url}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded-xl overflow-hidden border border-gray-700 hover:border-brand-500/50 transition-colors"
+              >
+                <img
+                  src={order.delivery_photo_url}
+                  alt="Delivery proof"
+                  className="w-full max-h-56 object-cover"
+                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
+                <p className="text-[11px] text-brand-400 px-3 py-1.5 bg-gray-800/60">
+                  Tap to open full photo
+                </p>
+              </a>
             </div>
           )}
 

@@ -38,6 +38,7 @@ pub struct Order {
     pub estimated_delivery_date: Option<NaiveDate>,
     pub seller_delivery_date: Option<NaiveDate>,
     pub delivery_notes: Option<String>,
+    pub delivery_photo_url: Option<String>,
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -62,6 +63,7 @@ struct OrderRow {
     estimated_delivery_date: Option<NaiveDate>,
     seller_delivery_date: Option<NaiveDate>,
     delivery_notes: Option<String>,
+    delivery_photo_url: Option<String>,
     status: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -87,6 +89,7 @@ impl From<OrderRow> for Order {
             estimated_delivery_date: r.estimated_delivery_date,
             seller_delivery_date: r.seller_delivery_date,
             delivery_notes: r.delivery_notes,
+            delivery_photo_url: r.delivery_photo_url,
             status: r.status,
             created_at: r.created_at,
             updated_at: r.updated_at,
@@ -111,6 +114,8 @@ pub struct UpdateOrderStatusRequest {
     /// Seller-confirmed delivery date, "YYYY-MM-DD". Seller only.
     pub delivery_date: Option<String>,
     pub notes: Option<String>,
+    /// URL of a delivery proof photo (e.g. from a cloud share). Seller only.
+    pub delivery_photo_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,6 +184,7 @@ const ORDER_SELECT: &str = r#"
         o.quantity, p.unit, o.unit_price_kes, o.total_kes, o.total_sats,
         o.buyer_location_name, o.distance_km,
         o.estimated_delivery_date, o.seller_delivery_date, o.delivery_notes,
+        o.delivery_photo_url,
         o.status, o.created_at, o.updated_at
     FROM orders o
     JOIN products p  ON p.id = o.product_id
@@ -478,13 +484,15 @@ pub async fn update_order_status(
         "UPDATE orders SET
             status               = $2,
             seller_delivery_date = COALESCE($3, seller_delivery_date),
-            delivery_notes       = COALESCE($4, delivery_notes)
+            delivery_notes       = COALESCE($4, delivery_notes),
+            delivery_photo_url   = COALESCE($5, delivery_photo_url)
          WHERE id = $1",
     )
     .bind(id)
     .bind(&body.status)
     .bind(delivery_date)
     .bind(&body.notes)
+    .bind(&body.delivery_photo_url)
     .execute(&state.db)
     .await?;
 

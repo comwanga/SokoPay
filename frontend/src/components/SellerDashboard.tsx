@@ -116,6 +116,7 @@ function IncomingOrderCard({ order }: { order: Order }) {
   const [expanded, setExpanded] = useState(false)
   const [deliveryDate, setDeliveryDate] = useState(order.seller_delivery_date ?? '')
   const [notes, setNotes] = useState(order.delivery_notes ?? '')
+  const [photoUrl, setPhotoUrl] = useState('')
   const qc = useQueryClient()
 
   const next = sellerNextStatus(order.status)
@@ -126,6 +127,7 @@ function IncomingOrderCard({ order }: { order: Order }) {
         status: next!,
         delivery_date: deliveryDate || undefined,
         notes: notes || undefined,
+        delivery_photo_url: photoUrl.trim() || undefined,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['orders', 'seller'] }),
   })
@@ -234,6 +236,19 @@ function IncomingOrderCard({ order }: { order: Order }) {
                   />
                 </div>
               </div>
+              {next === 'delivered' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-400">Delivery photo URL (optional)</label>
+                  <input
+                    type="url"
+                    value={photoUrl}
+                    onChange={e => setPhotoUrl(e.target.value)}
+                    placeholder="https://… (share link from your camera)"
+                    className="input-base text-sm font-mono"
+                  />
+                  <p className="text-[11px] text-gray-600">Paste a link to a photo of the delivered goods as proof of delivery.</p>
+                </div>
+              )}
 
               <button
                 onClick={() => advance.mutate()}

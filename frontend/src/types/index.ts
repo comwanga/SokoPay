@@ -164,6 +164,7 @@ export interface Order {
   estimated_delivery_date: string | null  // "YYYY-MM-DD"
   seller_delivery_date: string | null
   delivery_notes: string | null
+  delivery_photo_url: string | null
   status: OrderStatus
   created_at: string
   updated_at: string
@@ -181,6 +182,7 @@ export interface UpdateOrderStatusPayload {
   status: OrderStatus
   delivery_date?: string   // "YYYY-MM-DD"
   notes?: string
+  delivery_photo_url?: string
 }
 
 // ─── Payment ─────────────────────────────────────────────────────────────────
