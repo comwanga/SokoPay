@@ -45,6 +45,7 @@ pub struct Product {
     pub price_kes: Decimal,
     pub unit: String,
     pub quantity_avail: Decimal,
+    pub low_stock_threshold: Option<Decimal>,
     pub category: String,
     pub status: String,
     pub location_name: String,
@@ -70,6 +71,7 @@ struct ProductRow {
     price_kes: Decimal,
     unit: String,
     quantity_avail: Decimal,
+    low_stock_threshold: Option<Decimal>,
     category: String,
     status: String,
     location_name: String,
@@ -109,6 +111,7 @@ pub struct UpdateProductRequest {
     pub price_kes: Option<Decimal>,
     pub unit: Option<String>,
     pub quantity_avail: Option<Decimal>,
+    pub low_stock_threshold: Option<Decimal>,
     pub category: Option<String>,
     pub status: Option<String>,
     pub location_name: Option<String>,
@@ -213,7 +216,7 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
         "SELECT p.id, p.seller_id, f.name AS seller_name,
                 (f.verified_at IS NOT NULL) AS seller_verified,
                 p.title, p.description, p.price_kes, p.unit,
-                p.quantity_avail, p.category, p.status,
+                p.quantity_avail, p.low_stock_threshold, p.category, p.status,
                 p.location_name, p.country_code, p.currency_code,
                 p.ships_to, p.is_global,
                 p.created_at, p.updated_at,
@@ -249,6 +252,7 @@ fn row_to_product(row: ProductRow, images: Vec<ProductImage>) -> Product {
         price_kes: row.price_kes,
         unit: row.unit,
         quantity_avail: row.quantity_avail,
+        low_stock_threshold: row.low_stock_threshold,
         category: row.category,
         status: row.status,
         location_name: row.location_name,
@@ -389,7 +393,7 @@ pub async fn list_products(
         SELECT p.id, p.seller_id, f.name AS seller_name,
                (f.verified_at IS NOT NULL) AS seller_verified,
                p.title, p.description, p.price_kes, p.unit,
-               p.quantity_avail, p.category, p.status,
+               p.quantity_avail, p.low_stock_threshold, p.category, p.status,
                p.location_name, p.country_code, p.currency_code,
                p.ships_to, p.is_global,
                p.created_at, p.updated_at,
@@ -695,20 +699,21 @@ pub async fn update_product(
 
     sqlx::query(
         "UPDATE products SET
-            title          = COALESCE($2, title),
-            description    = COALESCE($3, description),
-            price_kes      = COALESCE($4, price_kes),
-            unit           = COALESCE($5, unit),
-            quantity_avail = COALESCE($6, quantity_avail),
-            category       = COALESCE($7, category),
-            status         = COALESCE($8, status),
-            location_name  = COALESCE($9, location_name),
-            location_lat   = COALESCE($10, location_lat),
-            location_lng   = COALESCE($11, location_lng),
-            country_code   = COALESCE($12, country_code),
-            currency_code  = COALESCE($13, currency_code),
-            ships_to       = COALESCE($14, ships_to),
-            is_global      = COALESCE($15, is_global)
+            title                = COALESCE($2, title),
+            description          = COALESCE($3, description),
+            price_kes            = COALESCE($4, price_kes),
+            unit                 = COALESCE($5, unit),
+            quantity_avail       = COALESCE($6, quantity_avail),
+            category             = COALESCE($7, category),
+            status               = COALESCE($8, status),
+            location_name        = COALESCE($9, location_name),
+            location_lat         = COALESCE($10, location_lat),
+            location_lng         = COALESCE($11, location_lng),
+            country_code         = COALESCE($12, country_code),
+            currency_code        = COALESCE($13, currency_code),
+            ships_to             = COALESCE($14, ships_to),
+            is_global            = COALESCE($15, is_global),
+            low_stock_threshold  = COALESCE($16, low_stock_threshold)
          WHERE id = $1",
     )
     .bind(id)
@@ -726,6 +731,7 @@ pub async fn update_product(
     .bind(body.currency_code.as_deref())
     .bind(body.ships_to.as_deref())
     .bind(body.is_global)
+    .bind(body.low_stock_threshold)
     .execute(&state.db)
     .await?;
 

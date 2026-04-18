@@ -168,6 +168,11 @@ async fn main() -> Result<()> {
     tokio::spawn(workers::disbursement::run(state.clone()));
     tracing::info!("Disbursement reconciliation worker started (poll interval: 10m)");
 
+    // Low-stock alert worker: notifies sellers when stock drops below their threshold.
+    // Not exit-critical — missed alerts are annoying but not financially harmful.
+    tokio::spawn(workers::low_stock::run(state.clone()));
+    tracing::info!("Low-stock alert worker started (poll interval: 10m)");
+
     // ── CORS ──────────────────────────────────────────────────────────────────
     let cors = build_cors(&config);
 

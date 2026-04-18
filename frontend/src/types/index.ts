@@ -58,6 +58,7 @@ export interface Product {
   price_kes: string   // Decimal as string
   unit: string
   quantity_avail: string  // Decimal as string
+  low_stock_threshold: string | null
   category: string
   status: ProductStatus
   location_name: string
@@ -94,6 +95,7 @@ export interface UpdateProductPayload {
   price_kes?: string
   unit?: string
   quantity_avail?: string
+  low_stock_threshold?: string | null
   category?: string
   status?: ProductStatus
   location_name?: string

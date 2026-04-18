@@ -39,8 +39,9 @@ export default function ProductForm() {
   const [locationLat, setLocationLat]   = useState<number | undefined>()
   const [locationLng, setLocationLng]   = useState<number | undefined>()
   const [locating, setLocating]         = useState(false)
-  const [countryCode, setCountryCode]   = useState('KE')
-  const [isGlobal, setIsGlobal]         = useState(false)
+  const [countryCode, setCountryCode]         = useState('KE')
+  const [isGlobal, setIsGlobal]               = useState(false)
+  const [lowStockThreshold, setLowStockThreshold] = useState('')
 
   const [pendingImages, setPendingImages]     = useState<File[]>([])
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([])
@@ -66,6 +67,7 @@ export default function ProductForm() {
       setLocationName(existing.location_name)
       if (existing.country_code) setCountryCode(existing.country_code)
       setIsGlobal(existing.is_global ?? false)
+      if (existing.low_stock_threshold) setLowStockThreshold(existing.low_stock_threshold)
     }
   }, [existing])
 
@@ -114,6 +116,7 @@ export default function ProductForm() {
         price_kes: priceKes,
         unit,
         quantity_avail: quantity,
+        low_stock_threshold: lowStockThreshold ? lowStockThreshold : null,
         category: category || undefined,
         location_name: locationName.trim() || undefined,
         location_lat: locationLat,
@@ -241,6 +244,25 @@ export default function ProductForm() {
                 className="input-base"
               />
             </div>
+          </div>
+
+          {/* Low-stock threshold */}
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Low-stock alert threshold (optional)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={lowStockThreshold}
+              onChange={e => setLowStockThreshold(e.target.value)}
+              placeholder={`e.g. 10 ${unit}`}
+              className="input-base"
+            />
+            <p className="text-[11px] text-gray-600">
+              You'll be notified when stock drops to or below this level.
+            </p>
           </div>
 
           {/* Location + Country */}

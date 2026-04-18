@@ -62,6 +62,12 @@ function ListingCard({ product }: { product: Product }) {
         <p className="text-xs text-gray-400">
           {formatKes(product.price_kes)}/{product.unit} · {product.quantity_avail} {product.unit} available
         </p>
+        {product.low_stock_threshold !== null &&
+          parseFloat(product.quantity_avail) <= parseFloat(product.low_stock_threshold ?? '0') && (
+          <p className="text-[11px] text-yellow-400 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" /> Low stock
+          </p>
+        )}
         {product.location_name && (
           <p className="text-xs text-gray-500">{product.location_name}</p>
         )}
