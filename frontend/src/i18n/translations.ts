@@ -42,6 +42,19 @@ export const en: Record<string, string> = {
   'market.local':            'Local',
   'market.global':           'Global',
 
+  // Marketplace filters / sort
+  'market.filters':          'Filters',
+  'market.sort_by':          'Sort by',
+  'market.in_stock_only':    'In stock only',
+  'market.min_price':        'Min price (KES)',
+  'market.max_price':        'Max price (KES)',
+  'market.clear_filters':    'Clear filters',
+  'market.sort.newest':      'Newest',
+  'market.sort.price_asc':   'Price: Low → High',
+  'market.sort.price_desc':  'Price: High → Low',
+  'market.sort.rating':      'Top rated',
+  'market.seller_verified':  'Verified seller',
+
   // Connect prompt
   'connect.title':           'Connect to continue',
   'connect.subtitle':        'This feature requires a Nostr identity. Open SokoPay inside Fedi for instant access, or paste your public key below.',
@@ -115,6 +128,19 @@ export const sw: Record<string, string> = {
   'market.ships_globally':   'Hutumwa duniani kote',
   'market.local':            'Karibu',
   'market.global':           'Kimataifa',
+
+  // Marketplace filters / sort
+  'market.filters':          'Vichujio',
+  'market.sort_by':          'Panga kulingana na',
+  'market.in_stock_only':    'Zilizopo tu',
+  'market.min_price':        'Bei ya chini (KES)',
+  'market.max_price':        'Bei ya juu (KES)',
+  'market.clear_filters':    'Futa vichujio',
+  'market.sort.newest':      'Mpya zaidi',
+  'market.sort.price_asc':   'Bei: Chini → Juu',
+  'market.sort.price_desc':  'Bei: Juu → Chini',
+  'market.sort.rating':      'Iliyopimwa vyema',
+  'market.seller_verified':  'Muuzaji aliyethibitishwa',
 
   // Connect prompt
   'connect.title':           'Unganisha kuendelea',

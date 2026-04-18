@@ -12,11 +12,11 @@ import StarRating from './StarRating.tsx'
 
 type SortOption = 'newest' | 'price_asc' | 'price_desc' | 'rating'
 
-const SORT_LABELS: Record<SortOption, string> = {
-  newest: 'Newest first',
-  price_asc: 'Price: low → high',
-  price_desc: 'Price: high → low',
-  rating: 'Top rated',
+const SORT_I18N_KEYS: Record<SortOption, string> = {
+  newest: 'market.sort.newest',
+  price_asc: 'market.sort.price_asc',
+  price_desc: 'market.sort.price_desc',
+  rating: 'market.sort.rating',
 }
 
 // ── Country list (ISO alpha-2 + display name) ─────────────────────────────────
@@ -328,7 +328,7 @@ export default function Marketplace() {
           )}
         >
           <SlidersHorizontal className="w-3.5 h-3.5" />
-          Filters
+          {t('market.filters')}
           {activeFilterCount > 0 && (
             <span className="w-4 h-4 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center">
               {activeFilterCount}
@@ -367,20 +367,20 @@ export default function Marketplace() {
         <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
-              <ArrowUpDown className="w-3.5 h-3.5" /> Sort &amp; Filter
+              <ArrowUpDown className="w-3.5 h-3.5" /> {t('market.filters')}
             </p>
             {activeFilterCount > 0 && (
               <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors">
-                <X className="w-3 h-3" /> Clear all
+                <X className="w-3 h-3" /> {t('market.clear_filters')}
               </button>
             )}
           </div>
 
           {/* Sort */}
           <div className="space-y-1.5">
-            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Sort by</p>
+            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">{t('market.sort_by')}</p>
             <div className="grid grid-cols-2 gap-1.5">
-              {(Object.entries(SORT_LABELS) as [SortOption, string][]).map(([key, label]) => (
+              {(Object.keys(SORT_I18N_KEYS) as SortOption[]).map(key => (
                 <button
                   key={key}
                   onClick={() => setSort(key)}
@@ -391,7 +391,7 @@ export default function Marketplace() {
                       : 'bg-gray-900/60 border-gray-700 text-gray-400 hover:border-gray-500',
                   )}
                 >
-                  {label}
+                  {t(SORT_I18N_KEYS[key])}
                 </button>
               ))}
             </div>
@@ -399,20 +399,20 @@ export default function Marketplace() {
 
           {/* Price range */}
           <div className="space-y-1.5">
-            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Price range (KES)</p>
+            <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">{t('market.min_price')} / {t('market.max_price')}</p>
             <div className="flex items-center gap-2">
               <input
                 type="number"
-                placeholder="Min"
+                placeholder={t('market.min_price')}
                 value={minPrice}
                 onChange={e => setMinPrice(e.target.value)}
                 min={0}
                 className="input-base flex-1 text-sm"
               />
-              <span className="text-gray-600 text-xs shrink-0">to</span>
+              <span className="text-gray-600 text-xs shrink-0">–</span>
               <input
                 type="number"
-                placeholder="Max"
+                placeholder={t('market.max_price')}
                 value={maxPrice}
                 onChange={e => setMaxPrice(e.target.value)}
                 min={0}
@@ -435,7 +435,7 @@ export default function Marketplace() {
                 inStockOnly ? 'translate-x-4' : 'translate-x-0.5',
               )} />
             </div>
-            <span className="text-xs text-gray-300">In stock only</span>
+            <span className="text-xs text-gray-300">{t('market.in_stock_only')}</span>
           </label>
         </div>
       )}
