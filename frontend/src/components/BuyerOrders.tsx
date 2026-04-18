@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Package, ChevronDown, ChevronUp, ThumbsUp, AlertTriangle,
   XCircle, Zap, CheckCircle, FileText, Send,
-  Smartphone, Loader2,
+  Smartphone, Loader2, RotateCcw,
 } from 'lucide-react'
 import LightningInvoiceCard from './LightningInvoiceCard.tsx'
 import {
@@ -470,6 +471,7 @@ function EvidencePanel({ orderId }: { orderId: string }) {
 // ── Order card ────────────────────────────────────────────────────────────────
 
 function OrderCard({ order }: { order: Order }) {
+  const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [showPay, setShowPay] = useState(false)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
@@ -488,6 +490,7 @@ function OrderCard({ order }: { order: Order }) {
   const canConfirm = order.status === 'delivered'
   const canDispute = order.status === 'delivered'
   const canCancel = order.status === 'pending_payment'
+  const canReorder = order.status === 'confirmed'
 
   return (
     <div className="card overflow-hidden">
@@ -605,6 +608,15 @@ function OrderCard({ order }: { order: Order }) {
                 >
                   <XCircle className="w-4 h-4" />
                   Cancel Order
+                </button>
+              )}
+              {canReorder && (
+                <button
+                  onClick={() => navigate(`/product/${order.product_id}`)}
+                  className="btn-secondary text-sm"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Reorder
                 </button>
               )}
             </div>
