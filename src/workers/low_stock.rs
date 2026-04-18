@@ -50,7 +50,6 @@ async fn send_low_stock_alerts(state: &SharedState) -> Result<u64, sqlx::Error> 
         WHERE p.low_stock_threshold IS NOT NULL
           AND p.quantity_avail <= p.low_stock_threshold
           AND p.status = 'active'
-          AND p.deleted_at IS NULL
           AND (
               p.last_low_stock_alert_at IS NULL
               OR p.last_low_stock_alert_at < NOW() - ($1 || ' hours')::interval
