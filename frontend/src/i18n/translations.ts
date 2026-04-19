@@ -26,6 +26,15 @@ export const en: Record<string, string> = {
   'nav.sign_out':            'Sign out',
   'nav.add_lightning':       'Add your Lightning Address to receive payments',
   'nav.converter':           'Converter',
+  'nav.deliver_to':          'Deliver to',
+  'nav.hello':               'Hello',
+  'nav.sign_in':             'Sign in',
+  'nav.cart':                'Cart',
+  'nav.account':             'Account',
+  'nav.account_and_lists':   'Account & Lists',
+  'nav.browse_departments':  'Browse Departments',
+  'nav.all_products':        'All Products',
+  'nav.home':                'Home',
 
   // Marketplace page
   'market.title':            'Marketplace',
@@ -113,6 +122,15 @@ export const sw: Record<string, string> = {
   'nav.sign_out':            'Toka',
   'nav.add_lightning':       'Ongeza anwani yako ya Lightning kupokea malipo',
   'nav.converter':           'Kibadilishaji',
+  'nav.deliver_to':          'Wasilisha kwa',
+  'nav.hello':               'Habari',
+  'nav.sign_in':             'Ingia',
+  'nav.cart':                'Kikapu',
+  'nav.account':             'Akaunti',
+  'nav.account_and_lists':   'Akaunti na Orodha',
+  'nav.browse_departments':  'Vinjari Idara',
+  'nav.all_products':        'Bidhaa Zote',
+  'nav.home':                'Nyumbani',
 
   // Marketplace page
   'market.title':            'Soko',

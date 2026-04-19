@@ -13,6 +13,7 @@ import {
 } from '../api/client.ts'
 import { useAuth } from '../context/auth.tsx'
 import { useCart } from '../context/cart.tsx'
+import { useRecentlyViewed } from '../hooks/useRecentlyViewed.ts'
 import LightningInvoiceCard from './LightningInvoiceCard.tsx'
 import StarRating from './StarRating.tsx'
 import clsx from 'clsx'
@@ -63,11 +64,18 @@ export default function ProductDetail() {
   const [ratingSubmitted, setRatingSubmitted] = useState(false)
   const [ratingError, setRatingError] = useState<string | null>(null)
 
+  const { push: pushRecent } = useRecentlyViewed()
+
   const { data: product, isLoading, isError } = useQuery({
     queryKey: ['product', id],
     queryFn: () => getProduct(id!),
     enabled: !!id,
   })
+
+  // Track this product as recently viewed once it loads
+  useEffect(() => {
+    if (id && product) pushRecent(id)
+  }, [id, product, pushRecent])
 
   // ── Poll M-Pesa status while waiting for Daraja callback ─────────────────────
   useEffect(() => {

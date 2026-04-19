@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { LogIn } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/auth.tsx'
 import Layout from './components/Layout.tsx'
+import HomePage from './components/HomePage.tsx'
 import Marketplace from './components/Marketplace.tsx'
 import ProductDetail from './components/ProductDetail.tsx'
 import SellerDashboard from './components/SellerDashboard.tsx'
@@ -13,6 +14,8 @@ import PaymentHistory from './components/PaymentHistory.tsx'
 import DisplayOptions from './components/DisplayOptions.tsx'
 import SellerStorefront from './components/SellerStorefront.tsx'
 import PriceIndex from './components/PriceIndex.tsx'
+import CategoryPage from './components/CategoryPage.tsx'
+import CartPage from './components/CartPage.tsx'
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { authed, isAdmin } = useAuth()
@@ -54,7 +57,10 @@ function AppRoutes() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Marketplace />} />
+        <Route path="/" element={<HomePage />} />
+        <Route path="/browse" element={<Marketplace />} />
+        <Route path="/category/:cat" element={<CategoryPage />} />
+        <Route path="/cart" element={<CartPage />} />
         <Route path="/products/:id" element={<ProductDetail />} />
         <Route path="/sell" element={<RequireAuth><SellerDashboard /></RequireAuth>} />
         <Route path="/sell/new" element={<RequireAuth><ProductForm /></RequireAuth>} />

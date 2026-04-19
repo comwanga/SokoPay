@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState, useCallback } from 'react'
+import { NavLink, useNavigate, Link } from 'react-router-dom'
 import {
   ShoppingBag, Package, Store, TrendingUp, AlertCircle,
-  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield, ArrowLeftRight, History, Settings,
-  ShoppingCart,
+  LogOut, Plus, UserCircle, LogIn, Menu, X, Shield,
+  ArrowLeftRight, History, Settings, ShoppingCart, Search,
+  MapPin, ChevronRight, Home,
 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
@@ -12,75 +13,36 @@ import { useAuth } from '../context/auth.tsx'
 import { useDisplaySettings } from '../context/displaySettings.tsx'
 import { useTranslation } from '../i18n/index.tsx'
 import { useCart } from '../context/cart.tsx'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
 import CurrencyConverter from './CurrencyConverter.tsx'
 import CartDrawer from './CartDrawer.tsx'
+import Footer from './Footer.tsx'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
-// ── Rate display ───────────────────────────────────────────────────────────────
+// ── BTC rate pill (compact, for navbar) ───────────────────────────────────────
 
-function RateDisplay() {
+function RatePill() {
   const { fiatCurrency } = useDisplaySettings()
-
-  const { data: rate, isError: rateError } = useQuery({
+  const { data: rate } = useQuery({
     queryKey: ['rate'],
     queryFn: () => getRate(),
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
 
-  // For currencies not covered by our oracle (USD and KES), fetch from CoinGecko.
-  const needsCoinGecko = fiatCurrency !== 'USD' && fiatCurrency !== 'KES'
-  const { data: cgData } = useQuery({
-    queryKey: ['cg-rate', fiatCurrency],
-    queryFn: async () => {
-      const res = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=${fiatCurrency.toLowerCase()}`,
-      )
-      if (!res.ok) return null
-      const json = await res.json() as { bitcoin: Record<string, number> }
-      return json.bitcoin[fiatCurrency.toLowerCase()] ?? null
-    },
-    enabled: needsCoinGecko,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
-  })
+  if (!rate) return <div className="skeleton h-5 w-24 rounded-full hidden lg:block" />
 
-  if (rateError) return (
-    <div className="flex items-center gap-1.5 text-xs text-red-400">
-      <AlertCircle className="w-3.5 h-3.5" />
-      <span>Rate unavailable</span>
-    </div>
-  )
-
-  if (!rate) return (
-    <div className="flex gap-2">
-      <div className="skeleton h-3 w-20 rounded" />
-      <div className="skeleton h-3 w-14 rounded" />
-    </div>
-  )
-
-  // Determine which rate value + symbol to show
-  let displayValue: string
-  if (fiatCurrency === 'USD') {
-    displayValue = `$${parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-  } else if (fiatCurrency === 'KES') {
-    displayValue = `KES ${parseFloat(rate.btc_local).toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
-  } else if (cgData != null) {
-    displayValue = `${fiatCurrency} ${cgData.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-  } else {
-    // CoinGecko loading — fall back to USD
-    displayValue = `$${parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-  }
+  const value = fiatCurrency === 'KES'
+    ? `KES ${parseFloat(rate.btc_local).toLocaleString('en-KE', { maximumFractionDigits: 0 })}`
+    : `$${parseFloat(rate.btc_usd).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 
   return (
-    <div className="flex items-center gap-1.5">
-      <TrendingUp className="w-3.5 h-3.5 text-bitcoin shrink-0" />
-      <span className="text-xs font-semibold text-bitcoin">
-        {displayValue}
-      </span>
+    <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bitcoin/10 border border-bitcoin/20 shrink-0">
+      <span className="text-bitcoin text-xs font-bold">₿</span>
+      <span className="text-xs font-semibold text-bitcoin">{value}</span>
       <span className={clsx(
-        'text-[10px] px-1 py-0.5 rounded font-medium ml-1',
+        'text-[9px] font-bold px-1 py-0.5 rounded',
         rate.live ? 'bg-mpesa/20 text-mpesa' : 'bg-gray-700 text-gray-400',
       )}>
         {rate.live ? 'LIVE' : 'CACHED'}
@@ -89,74 +51,162 @@ function RateDisplay() {
   )
 }
 
-// ── Shared nav link ────────────────────────────────────────────────────────────
+// ── Top navigation bar ────────────────────────────────────────────────────────
 
-interface NavItemProps {
-  to: string
-  icon: ReactNode
-  label: string
-  end?: boolean
-  onClick?: () => void
+interface TopNavbarProps {
+  onMenuOpen: () => void
+  onCartOpen: () => void
+  onConverterOpen: () => void
 }
 
-function SideNavItem({ to, icon, label, end, onClick }: NavItemProps) {
-  return (
-    <NavLink
-      to={to}
-      end={end}
-      onClick={onClick}
-      className={({ isActive }) =>
-        clsx(
-          'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-          isActive
-            ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
-            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800',
-        )
-      }
-    >
-      <span className="w-5 h-5 shrink-0">{icon}</span>
-      <span>{label}</span>
-    </NavLink>
-  )
-}
-
-// ── Cart button for desktop sidebar ──────────────────────────────────────────
-
-function CartButton({ onOpenCart }: { onOpenCart: () => void }) {
-  const { totalCount } = useCart()
-  return (
-    <div className="px-3 py-2 border-t border-gray-800">
-      <button
-        onClick={onOpenCart}
-        className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-gray-400 hover:text-gray-200 hover:bg-gray-800"
-      >
-        <span className="w-5 h-5 shrink-0 relative">
-          <ShoppingCart className="w-5 h-5" />
-          {totalCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-brand-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-              {totalCount > 9 ? '9+' : totalCount}
-            </span>
-          )}
-        </span>
-        <span>Cart{totalCount > 0 ? ` (${totalCount})` : ''}</span>
-      </button>
-    </div>
-  )
-}
-
-// ── Sidebar content (shared between desktop aside and mobile drawer) ───────────
-
-interface SidebarContentProps {
-  onNav?: () => void
-  onOpenConverter: () => void
-  onOpenCart: () => void
-}
-
-function SidebarContent({ onNav, onOpenConverter, onOpenCart }: SidebarContentProps) {
+function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) {
   const navigate = useNavigate()
-  const { authed, connecting, connect, isAdmin } = useAuth()
+  const { t } = useTranslation()
+  const { authed, connect, connecting } = useAuth()
+  const { farmer } = useCurrentFarmer()
+  const { totalCount } = useCart()
+  const [searchFocused, setSearchFocused] = useState(false)
+
+  const countryNames: Record<string, string> = {
+    KE: 'Kenya', UG: 'Uganda', TZ: 'Tanzania', RW: 'Rwanda',
+    ET: 'Ethiopia', GH: 'Ghana', NG: 'Nigeria', ZA: 'South Africa',
+    ZM: 'Zambia', ZW: 'Zimbabwe', SN: 'Senegal', CI: "Côte d'Ivoire",
+  }
+  const stored = localStorage.getItem('sokopay_country')
+  const locationLabel = stored ? (countryNames[stored] ?? stored) : 'Africa'
+
+  return (
+    <header className="fixed top-0 inset-x-0 z-40 bg-gray-900 border-b border-gray-800 h-14 shadow-lg">
+      <div className="flex items-center h-full px-3 gap-2 sm:gap-3 max-w-screen-2xl mx-auto">
+
+        {/* Hamburger */}
+        <button
+          onClick={onMenuOpen}
+          className="p-2 rounded-lg text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors shrink-0"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        {/* Logo */}
+        <Link to="/" className="flex items-center gap-2 shrink-0 group">
+          <div className="w-8 h-8 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center group-hover:bg-brand-500/30 transition-colors">
+            <Store className="w-4 h-4 text-brand-400" />
+          </div>
+          <span className="text-base font-bold text-gray-100 hidden sm:block leading-tight">SokoPay</span>
+        </Link>
+
+        {/* Deliver-to pill (desktop) */}
+        <button
+          onClick={() => navigate('/browse')}
+          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-transparent hover:border-gray-700 hover:bg-gray-800 transition-all shrink-0"
+        >
+          <MapPin className="w-3.5 h-3.5 text-brand-400" />
+          <div className="text-left">
+            <p className="text-[10px] text-gray-500 leading-none">{t('nav.deliver_to')}</p>
+            <p className="text-xs font-semibold text-gray-200 leading-none mt-0.5">{locationLabel} ▾</p>
+          </div>
+        </button>
+
+        {/* Search bar */}
+        <div className="flex-1 relative hidden sm:block">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+          <input
+            type="text"
+            placeholder={t('market.search')}
+            className={clsx(
+              'w-full bg-gray-800 border rounded-xl pl-9 pr-4 py-2 text-sm text-gray-100 placeholder-gray-500 transition-all outline-none',
+              searchFocused
+                ? 'border-brand-500 ring-1 ring-brand-500/30'
+                : 'border-gray-700 hover:border-gray-600',
+            )}
+            onFocus={() => { setSearchFocused(true); navigate('/browse') }}
+            onBlur={() => setSearchFocused(false)}
+          />
+        </div>
+
+        {/* Right actions */}
+        <div className="flex items-center gap-1 ml-auto sm:ml-0">
+          <RatePill />
+
+          <button
+            onClick={onConverterOpen}
+            className="hidden md:flex p-2 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors"
+            title="Currency Converter"
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+          </button>
+
+          {/* Search icon — mobile only */}
+          <button
+            onClick={() => navigate('/browse')}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors sm:hidden"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+
+          {/* Account (desktop) */}
+          {authed ? (
+            <Link
+              to="/profile"
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              <UserCircle className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <p className="text-[10px] text-gray-500 leading-none">{t('nav.hello')}</p>
+                <p className="text-xs font-semibold text-gray-200 leading-none mt-0.5">
+                  {farmer?.name?.split(' ')[0] ?? t('nav.account')}
+                </p>
+              </div>
+            </Link>
+          ) : (
+            <button
+              onClick={connecting ? undefined : connect}
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              <UserCircle className="w-5 h-5 text-gray-400" />
+              <div className="text-left">
+                <p className="text-[10px] text-gray-500 leading-none">{t('nav.hello')}</p>
+                <p className="text-xs font-semibold text-brand-400 leading-none mt-0.5">
+                  {connecting ? t('nav.connecting') : t('nav.sign_in')}
+                </p>
+              </div>
+            </button>
+          )}
+
+          {/* Cart */}
+          <button
+            onClick={onCartOpen}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-300 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+          >
+            <div className="relative">
+              <ShoppingCart className="w-5 h-5" />
+              {totalCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-0.5 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {totalCount > 99 ? '99+' : totalCount}
+                </span>
+              )}
+            </div>
+            <span className="hidden md:block text-xs font-semibold">{t('nav.cart')}</span>
+          </button>
+        </div>
+      </div>
+    </header>
+  )
+}
+
+// ── Mega menu ─────────────────────────────────────────────────────────────────
+
+interface MegaMenuProps {
+  open: boolean
+  onClose: () => void
+  onConverterOpen: () => void
+}
+
+function MegaMenu({ open, onClose, onConverterOpen }: MegaMenuProps) {
+  const navigate = useNavigate()
+  const { authed, isAdmin, connect, connecting } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
-  const { fiatCurrency } = useDisplaySettings()
   const { t } = useTranslation()
 
   function handleLogout() {
@@ -164,172 +214,260 @@ function SidebarContent({ onNav, onOpenConverter, onOpenCart }: SidebarContentPr
     window.location.reload()
   }
 
+  function go(path: string) {
+    navigate(path)
+    onClose()
+  }
+
+  function MenuItem({ label, icon, path, badge }: { label: string; icon: ReactNode; path: string; badge?: string }) {
+    return (
+      <button
+        onClick={() => go(path)}
+        className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-gray-100 hover:bg-gray-800 transition-colors text-left"
+      >
+        <span className="w-4 h-4 shrink-0 text-gray-500">{icon}</span>
+        <span className="flex-1">{label}</span>
+        {badge && (
+          <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">
+            {badge}
+          </span>
+        )}
+        <ChevronRight className="w-3 h-3 text-gray-700 shrink-0" />
+      </button>
+    )
+  }
+
   return (
     <>
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <p className="px-3 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
-          {t('nav.section.marketplace')}
-        </p>
-        <SideNavItem to="/" icon={<ShoppingBag />} label={t('nav.browse')} end onClick={onNav} />
-        <SideNavItem to="/orders" icon={<Package />} label={t('nav.orders')} onClick={onNav} />
-        <SideNavItem to="/price-index" icon={<TrendingUp />} label={t('nav.price_index')} onClick={onNav} />
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm"
+          onClick={onClose}
+        />
+      )}
+      <aside className={clsx(
+        'fixed top-0 left-0 h-full w-80 bg-gray-900 border-r border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out',
+        open ? 'translate-x-0' : '-translate-x-full',
+      )}>
 
-        <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
-          {t('nav.section.selling')}
-        </p>
-        <SideNavItem to="/sell" icon={<Store />} label={t('nav.sell')} onClick={onNav} />
-        <SideNavItem to="/payments" icon={<History />} label={t('nav.payments')} onClick={onNav} />
-        <SideNavItem to="/settings" icon={<Settings />} label={t('nav.settings')} onClick={onNav} />
-        <button
-          onClick={() => { navigate('/sell/new'); onNav?.() }}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left text-gray-400 hover:text-gray-200 hover:bg-gray-800"
-        >
-          <span className="w-5 h-5 shrink-0"><Plus /></span>
-          <span>{t('nav.new_listing')}</span>
-        </button>
-
-        {isAdmin && (
-          <>
-            <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
-              {t('nav.section.admin')}
-            </p>
-            <SideNavItem to="/admin" icon={<Shield />} label={t('nav.admin')} onClick={onNav} />
-          </>
-        )}
-
-        <p className="px-3 mt-4 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
-          {t('nav.section.account')}
-        </p>
-        {authed ? (
-          <NavLink
-            to="/profile"
-            onClick={onNav}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800',
-              )
-            }
-          >
-            <span className="w-5 h-5 shrink-0 relative">
-              <UserCircle />
-              {needsSetup && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400" />
-              )}
-            </span>
-            <span className="flex-1">{farmer?.name ?? t('nav.profile')}</span>
-            {needsSetup && (
-              <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">
-                Setup
-              </span>
-            )}
-          </NavLink>
-        ) : (
+        {/* User greeting */}
+        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800 bg-brand-500/5 shrink-0">
+          {authed ? (
+            <button onClick={() => go('/profile')} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+              <div className="w-10 h-10 rounded-full bg-brand-500/20 border border-brand-500/30 flex items-center justify-center shrink-0">
+                <UserCircle className="w-6 h-6 text-brand-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] text-gray-500">{t('nav.hello')},</p>
+                <p className="text-sm font-bold text-gray-100 truncate">{farmer?.name ?? t('nav.profile')}</p>
+              </div>
+            </button>
+          ) : (
+            <button
+              onClick={() => { connect(); onClose() }}
+              disabled={connecting}
+              className="flex items-center gap-3 flex-1 text-left"
+            >
+              <div className="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center shrink-0">
+                <UserCircle className="w-6 h-6 text-gray-500" />
+              </div>
+              <div>
+                <p className="text-[11px] text-gray-500">{t('nav.hello')}, sign in</p>
+                <p className="text-sm font-bold text-brand-400">
+                  {connecting ? t('nav.connecting') : t('nav.account_and_lists')}
+                </p>
+              </div>
+            </button>
+          )}
           <button
-            onClick={() => { connect(); onNav?.() }}
-            disabled={connecting}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left text-brand-400 hover:text-brand-300 hover:bg-brand-500/10"
+            onClick={onClose}
+            className="p-2 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors shrink-0 ml-2"
           >
-            <span className="w-5 h-5 shrink-0"><LogIn /></span>
-            <span>{connecting ? t('nav.connecting') : t('nav.connect')}</span>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Setup nudge */}
+        {authed && needsSetup && (
+          <button
+            onClick={() => go('/profile?setup=1')}
+            className="flex items-start gap-2 px-4 py-2.5 bg-yellow-900/20 border-b border-yellow-700/20 text-left w-full"
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-yellow-400 leading-snug">{t('nav.add_lightning')}</p>
           </button>
         )}
-      </nav>
 
-      {/* Setup nudge */}
-      {authed && needsSetup && (
-        <button
-          onClick={() => { navigate('/profile?setup=1'); onNav?.() }}
-          className="mx-3 mb-2 flex gap-2 items-start bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2.5 text-left hover:bg-yellow-900/30 transition-colors"
-        >
-          <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-yellow-400 leading-snug">
-            {t('nav.add_lightning')}
-          </p>
-        </button>
-      )}
+        {/* Scrollable nav sections */}
+        <div className="flex-1 overflow-y-auto">
 
-      {/* Cart button */}
-      <CartButton onOpenCart={onOpenCart} />
-
-      {/* BTC Rate + converter + sign out */}
-      <div className="px-4 py-4 border-t border-gray-800 space-y-3">
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
-              BTC / {fiatCurrency}
+          {/* Browse Departments */}
+          <div className="py-1">
+            <p className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
+              {t('nav.browse_departments')}
             </p>
+            <MenuItem label={t('nav.all_products')} icon={<ShoppingBag className="w-4 h-4" />} path="/browse" />
+            {PRODUCT_CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => go(`/category/${encodeURIComponent(cat)}`)}
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+              >
+                <span className="text-base w-4 text-center shrink-0">{CATEGORY_ICONS[cat] ?? '📦'}</span>
+                <span className="flex-1 text-left">{cat}</span>
+                <ChevronRight className="w-3 h-3 text-gray-700 shrink-0" />
+              </button>
+            ))}
+          </div>
+
+          <div className="h-px bg-gray-800 mx-4" />
+
+          {/* Your Account */}
+          <div className="py-1">
+            <p className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
+              {t('nav.section.account')}
+            </p>
+            <MenuItem label={t('nav.orders')} icon={<Package className="w-4 h-4" />} path="/orders" />
+            <MenuItem
+              label={t('nav.profile')}
+              icon={<UserCircle className="w-4 h-4" />}
+              path="/profile"
+              badge={needsSetup ? 'Setup' : undefined}
+            />
+            <MenuItem label={t('nav.payments')} icon={<History className="w-4 h-4" />} path="/payments" />
+            <MenuItem label={t('nav.price_index')} icon={<TrendingUp className="w-4 h-4" />} path="/price-index" />
+            <MenuItem label={t('nav.settings')} icon={<Settings className="w-4 h-4" />} path="/settings" />
+          </div>
+
+          <div className="h-px bg-gray-800 mx-4" />
+
+          {/* Sell on SokoPay */}
+          <div className="py-1">
+            <p className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
+              {t('nav.section.selling')}
+            </p>
+            <MenuItem label={t('nav.sell')} icon={<Store className="w-4 h-4" />} path="/sell" />
+            <MenuItem label={t('nav.new_listing')} icon={<Plus className="w-4 h-4" />} path="/sell/new" />
+          </div>
+
+          {isAdmin && (
+            <>
+              <div className="h-px bg-gray-800 mx-4" />
+              <div className="py-1">
+                <p className="px-4 pt-3 pb-1 text-[10px] font-semibold text-gray-600 uppercase tracking-widest">
+                  {t('nav.section.admin')}
+                </p>
+                <MenuItem label={t('nav.admin')} icon={<Shield className="w-4 h-4" />} path="/admin" />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer: rate + converter + sign out */}
+        <div className="border-t border-gray-800 px-4 py-3 space-y-3 shrink-0">
+          <div className="flex items-center justify-between">
+            <RatePill />
             <button
-              onClick={onOpenConverter}
-              className="flex items-center gap-1 text-[10px] font-medium text-gray-500 hover:text-brand-400 transition-colors"
-              title="Currency Converter"
+              onClick={() => { onConverterOpen(); onClose() }}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-brand-400 transition-colors"
             >
-              <ArrowLeftRight className="w-3 h-3" />
+              <ArrowLeftRight className="w-3.5 h-3.5" />
               {t('nav.converter')}
             </button>
           </div>
-          <RateDisplay />
+          {authed && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              {t('nav.sign_out')}
+            </button>
+          )}
         </div>
-        {authed && (
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            {t('nav.sign_out')}
-          </button>
-        )}
-      </div>
+      </aside>
     </>
   )
 }
 
-// ── Bottom nav bar (mobile only) ───────────────────────────────────────────────
+// ── Bottom tab bar (mobile) ───────────────────────────────────────────────────
 
-function BottomNav() {
+function BottomNav({ onCartOpen }: { onCartOpen: () => void }) {
   const { authed, connect } = useAuth()
+  const { totalCount } = useCart()
 
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 bg-gray-900 border-t border-gray-800 z-40 safe-bottom">
-      <div className="flex items-center justify-around px-2 py-2">
-        <NavLink to="/" end className={({ isActive }) =>
-          clsx('flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
-            isActive ? 'text-brand-400' : 'text-gray-500')}>
+    <nav className="md:hidden fixed bottom-0 inset-x-0 bg-gray-900 border-t border-gray-800 z-40">
+      <div className="flex items-stretch justify-around px-1 py-1 max-w-screen-sm mx-auto">
+
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) => clsx(
+            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
+            isActive ? 'text-brand-400' : 'text-gray-500 hover:text-gray-300',
+          )}
+        >
+          <Home className="w-5 h-5" />
+          Home
+        </NavLink>
+
+        <NavLink
+          to="/browse"
+          className={({ isActive }) => clsx(
+            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
+            isActive ? 'text-brand-400' : 'text-gray-500 hover:text-gray-300',
+          )}
+        >
           <ShoppingBag className="w-5 h-5" />
           Browse
         </NavLink>
 
-        <NavLink to="/orders" className={({ isActive }) =>
-          clsx('flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
-            isActive ? 'text-brand-400' : 'text-gray-500')}>
+        {/* Cart tab — centre, highlighted */}
+        <button
+          onClick={onCartOpen}
+          className="flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 rounded-lg text-[10px] font-medium text-gray-500 hover:text-gray-300 transition-colors relative"
+        >
+          <div className="relative">
+            <ShoppingCart className="w-5 h-5" />
+            {totalCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 bg-brand-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
+                {totalCount > 9 ? '9+' : totalCount}
+              </span>
+            )}
+          </div>
+          Cart
+        </button>
+
+        <NavLink
+          to="/orders"
+          className={({ isActive }) => clsx(
+            'flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
+            isActive ? 'text-brand-400' : 'text-gray-500 hover:text-gray-300',
+          )}
+        >
           <Package className="w-5 h-5" />
           Orders
         </NavLink>
 
-        <NavLink to="/sell" className={({ isActive }) =>
-          clsx('flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
-            isActive ? 'text-brand-400' : 'text-gray-500')}>
-          <Store className="w-5 h-5" />
-          Sell
-        </NavLink>
-
         {authed ? (
-          <NavLink to="/profile" className={({ isActive }) =>
-            clsx('flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
-              isActive ? 'text-brand-400' : 'text-gray-500')}>
+          <NavLink
+            to="/profile"
+            className={({ isActive }) => clsx(
+              'flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
+              isActive ? 'text-brand-400' : 'text-gray-500 hover:text-gray-300',
+            )}
+          >
             <UserCircle className="w-5 h-5" />
-            Profile
+            Account
           </NavLink>
         ) : (
           <button
             onClick={connect}
-            className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium text-brand-400"
+            className="flex flex-col items-center justify-center gap-0.5 flex-1 py-1.5 rounded-lg text-[10px] font-medium text-brand-400 transition-colors"
           >
             <LogIn className="w-5 h-5" />
-            Connect
+            Sign in
           </button>
         )}
       </div>
@@ -337,119 +475,45 @@ function BottomNav() {
   )
 }
 
-// ── Main layout ────────────────────────────────────────────────────────────────
+// ── Root layout ───────────────────────────────────────────────────────────────
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const [drawerOpen, setDrawerOpen]       = useState(false)
+  const [menuOpen, setMenuOpen]           = useState(false)
   const [converterOpen, setConverterOpen] = useState(false)
   const [cartOpen, setCartOpen]           = useState(false)
-  const { totalCount } = useCart()
+
+  const openMenu      = useCallback(() => setMenuOpen(true), [])
+  const closeMenu     = useCallback(() => setMenuOpen(false), [])
+  const openConverter = useCallback(() => setConverterOpen(true), [])
+  const openCart      = useCallback(() => setCartOpen(true), [])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-950">
+    <div className="min-h-screen bg-gray-950 flex flex-col">
+      <TopNavbar
+        onMenuOpen={openMenu}
+        onCartOpen={openCart}
+        onConverterOpen={openConverter}
+      />
 
-      {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col bg-gray-900 border-r border-gray-800">
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-800">
-          <div className="w-9 h-9 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center shrink-0">
-            <Store className="w-5 h-5 text-brand-400" />
-          </div>
-          <div>
-            <p className="text-base font-bold text-gray-100 leading-tight">SokoPay</p>
-            <p className="text-[11px] text-gray-500 leading-tight">Buy & Sell Anything</p>
-          </div>
-        </div>
-        <SidebarContent onOpenConverter={() => setConverterOpen(true)} onOpenCart={() => setCartOpen(true)} />
-      </aside>
+      <MegaMenu
+        open={menuOpen}
+        onClose={closeMenu}
+        onConverterOpen={openConverter}
+      />
 
-      {/* ── Mobile drawer overlay ────────────────────────────────────────── */}
-      {drawerOpen && (
-        <div
-          className="md:hidden fixed inset-0 bg-black/60 z-40"
-          onClick={() => setDrawerOpen(false)}
-        />
-      )}
-      <aside className={clsx(
-        'md:hidden fixed top-0 left-0 h-full w-72 bg-gray-900 border-r border-gray-800 z-50 flex flex-col transition-transform duration-200',
-        drawerOpen ? 'translate-x-0' : '-translate-x-full',
-      )}>
-        {/* Drawer header */}
-        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center shrink-0">
-              <Store className="w-4 h-4 text-brand-400" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-gray-100 leading-tight">SokoPay</p>
-              <p className="text-[10px] text-gray-500 leading-tight">Buy & Sell Anything</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setDrawerOpen(false)}
-            className="text-gray-500 hover:text-gray-200 p-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <SidebarContent onNav={() => setDrawerOpen(false)} onOpenConverter={() => { setDrawerOpen(false); setConverterOpen(true) }} onOpenCart={() => { setDrawerOpen(false); setCartOpen(true) }} />
-      </aside>
+      {/* pt-14 clears the fixed top navbar; pb-16 clears mobile bottom nav */}
+      <main className="flex-1 pt-14 pb-16 md:pb-0">
+        {children}
+      </main>
 
-      {/* ── Right-hand column (mobile top bar + main content) ───────────── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <BottomNav onCartOpen={openCart} />
 
-        {/* Mobile top bar */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800 shrink-0">
-          <button
-            onClick={() => setDrawerOpen(true)}
-            className="text-gray-400 hover:text-gray-200 p-1 -ml-1"
-            aria-label="Open menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-2">
-            <Store className="w-4 h-4 text-brand-400" />
-            <span className="text-sm font-bold text-gray-100">SokoPay</span>
-          </div>
-          <div className="flex items-center gap-2 min-w-0">
-            <RateDisplay />
-            <button
-              onClick={() => setConverterOpen(true)}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors shrink-0"
-              title="Currency Converter"
-            >
-              <ArrowLeftRight className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setCartOpen(true)}
-              className="relative p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors shrink-0"
-              title="Cart"
-            >
-              <ShoppingCart className="w-4 h-4" />
-              {totalCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-brand-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                  {totalCount > 9 ? '9+' : totalCount}
-                </span>
-              )}
-            </button>
-          </div>
-        </header>
+      <Footer />
 
-        {/* Main content */}
-        <main className="flex-1 overflow-y-auto scrollbar-thin bg-gray-950 pb-16 md:pb-0">
-          {children}
-        </main>
-      </div>
-
-      {/* Mobile bottom nav */}
-      <BottomNav />
-
-      {/* Currency converter bottom sheet */}
       {converterOpen && (
         <CurrencyConverter onClose={() => setConverterOpen(false)} />
       )}
 
-      {/* Cart drawer */}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
     </div>
   )

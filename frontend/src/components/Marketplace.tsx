@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Search, MapPin, Package, Globe, ChevronDown, Loader2, ShoppingCart, Check, SlidersHorizontal, X, ArrowUpDown, BadgeCheck, ShieldCheck } from 'lucide-react'
-import { listProductsPage, formatKes } from '../api/client.ts'
+import { Search, Package, Globe, ChevronDown, Loader2, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react'
+import { listProductsPage } from '../api/client.ts'
 import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
-import { useCart } from '../context/cart.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
-import StarRating from './StarRating.tsx'
+import ProductCard from './ProductCard.tsx'
 
 type SortOption = 'newest' | 'price_asc' | 'price_desc' | 'rating'
 
@@ -35,124 +34,6 @@ const COUNTRIES = [
   { code: 'SN', name: 'Senegal' },
   { code: 'CI', name: "Côte d'Ivoire" },
 ]
-
-// ── Product card ──────────────────────────────────────────────────────────────
-
-function ProductCard({ product }: { product: Product }) {
-  const navigate    = useNavigate()
-  const { t }       = useTranslation()
-  const { addItem, items } = useCart()
-  const [added, setAdded]  = useState(false)
-
-  const primaryImage = product.images.find(i => i.is_primary) ?? product.images[0]
-  const qty          = parseFloat(product.quantity_avail)
-  const inCart       = items.some(i => i.product.id === product.id)
-
-  function handleAddToCart(e: React.MouseEvent) {
-    e.stopPropagation()
-    addItem(product, 1)
-    setAdded(true)
-    setTimeout(() => setAdded(false), 1500)
-  }
-
-  return (
-    <button
-      onClick={() => navigate(`/products/${product.id}`)}
-      className="card text-left hover:border-brand-500/40 transition-all hover:shadow-lg hover:shadow-brand-500/5 flex flex-col overflow-hidden"
-    >
-      {/* Image */}
-      <div className="aspect-video bg-gray-800 relative overflow-hidden">
-        {primaryImage ? (
-          <img
-            src={primaryImage.url}
-            alt={product.title}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <Package className="w-10 h-10 text-gray-600" />
-          </div>
-        )}
-        {product.category && (
-          <span className="absolute top-2 left-2 text-[10px] font-semibold bg-gray-900/80 text-gray-300 px-2 py-0.5 rounded-full">
-            {CATEGORY_ICONS[product.category] ?? '📦'} {product.category}
-          </span>
-        )}
-        {product.is_global && !product.escrow_mode && (
-          <span className="absolute top-2 right-2 text-[10px] font-semibold bg-brand-500/80 text-white px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-            <Globe className="w-2.5 h-2.5" /> {t('market.ships_globally')}
-          </span>
-        )}
-        {product.escrow_mode && (
-          <span className="absolute top-2 right-2 text-[10px] font-semibold bg-green-900/90 text-green-300 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-            <ShieldCheck className="w-2.5 h-2.5" /> Escrow
-          </span>
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="p-3 flex flex-col gap-1.5 flex-1">
-        <h3 className="text-sm font-semibold text-gray-100 line-clamp-2 leading-snug">
-          {product.title}
-        </h3>
-
-        <div className="flex items-baseline gap-1">
-          <span className="text-base font-bold text-brand-400">
-            {formatKes(product.price_kes)}
-          </span>
-          <span className="text-xs text-gray-500">/{product.unit}</span>
-        </div>
-
-        {(product.rating_count ?? 0) > 0 && (
-          <div className="flex items-center gap-1">
-            <StarRating rating={product.avg_rating ?? 0} size="sm" />
-            <span className="text-[11px] text-gray-500">({product.rating_count})</span>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between text-xs text-gray-500 mt-auto pt-2">
-          <span className="font-medium text-gray-400 flex items-center gap-1">
-            {product.seller_name}
-            {product.seller_verified && (
-              <BadgeCheck className="w-3.5 h-3.5 text-brand-400 shrink-0" />
-            )}
-          </span>
-          {product.location_name && (
-            <span className="flex items-center gap-1">
-              <MapPin className="w-3 h-3" />
-              {product.location_name}
-            </span>
-          )}
-        </div>
-
-        {qty <= 10 && qty > 0 && (
-          <p className="text-[11px] text-yellow-400">
-            {t('market.only_x_left', { qty, unit: product.unit })}
-          </p>
-        )}
-
-        {/* Add to cart button */}
-        <button
-          onClick={handleAddToCart}
-          className={clsx(
-            'mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all',
-            added || inCart
-              ? 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
-              : 'bg-gray-700/60 text-gray-300 hover:bg-gray-700 border border-transparent',
-          )}
-        >
-          {added ? (
-            <><Check className="w-3.5 h-3.5" /> Added</>
-          ) : inCart ? (
-            <><ShoppingCart className="w-3.5 h-3.5" /> In cart</>
-          ) : (
-            <><ShoppingCart className="w-3.5 h-3.5" /> Add to cart</>
-          )}
-        </button>
-      </div>
-    </button>
-  )
-}
 
 // ── Country selector ──────────────────────────────────────────────────────────
 
@@ -218,7 +99,9 @@ export default function Marketplace() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [category, setCategory] = useState<string>('')
-  const [country, setCountry] = useState<string>('')
+  const [country, setCountry] = useState<string>(
+    () => localStorage.getItem('sokopay_country') ?? '',
+  )
   const [scope, setScope] = useState<'country' | 'global'>('global')
 
   // Filter panel state
@@ -306,7 +189,12 @@ export default function Marketplace() {
           <h1 className="text-lg font-bold text-gray-100 leading-tight">{t('market.title')}</h1>
           <p className="text-xs text-gray-500 mt-0.5">{t('market.subtitle')}</p>
         </div>
-        <CountrySelector value={country} onChange={c => { setCountry(c); setScope('country') }} />
+        <CountrySelector value={country} onChange={c => {
+          setCountry(c)
+          setScope('country')
+          if (c) localStorage.setItem('sokopay_country', c)
+          else localStorage.removeItem('sokopay_country')
+        }} />
       </div>
 
       {/* Search bar + filter button */}
