@@ -90,7 +90,7 @@ export default function ProductCard({ product }: { product: Product }) {
                 key={i}
                 className={clsx(
                   'w-3 h-3',
-                  i < Math.round(product.avg_rating ?? 0)
+                  i < Math.floor(product.avg_rating ?? 0)
                     ? 'text-yellow-400 fill-yellow-400'
                     : 'text-gray-700',
                 )}

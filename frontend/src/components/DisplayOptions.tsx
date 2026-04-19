@@ -9,7 +9,8 @@ import { WORLD_CURRENCIES, getCurrencyMeta } from '../data/currencies.ts'
 const LANGUAGES = [
   { code: 'English', label: 'English',      flag: '🇬🇧' },
   { code: 'Swahili', label: 'Swahili (KE)', flag: '🇰🇪' },
-  { code: 'French',  label: 'French',       flag: '🇫🇷' },
+  // French stub — uncomment when translations are complete
+  // { code: 'French',  label: 'French',    flag: '🇫🇷' },
 ]
 
 const THEME_LABELS: Record<AppTheme, string> = {

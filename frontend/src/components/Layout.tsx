@@ -13,7 +13,7 @@ import { useAuth } from '../context/auth.tsx'
 import { useDisplaySettings } from '../context/displaySettings.tsx'
 import { useTranslation } from '../i18n/index.tsx'
 import { useCart } from '../context/cart.tsx'
-import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES } from '../types'
 import CurrencyConverter from './CurrencyConverter.tsx'
 import CartDrawer from './CartDrawer.tsx'
 import Footer from './Footer.tsx'
@@ -67,13 +67,10 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
   const { totalCount } = useCart()
   const [searchFocused, setSearchFocused] = useState(false)
 
-  const countryNames: Record<string, string> = {
-    KE: 'Kenya', UG: 'Uganda', TZ: 'Tanzania', RW: 'Rwanda',
-    ET: 'Ethiopia', GH: 'Ghana', NG: 'Nigeria', ZA: 'South Africa',
-    ZM: 'Zambia', ZW: 'Zimbabwe', SN: 'Senegal', CI: "Côte d'Ivoire",
-  }
   const stored = localStorage.getItem('sokopay_country')
-  const locationLabel = stored ? (countryNames[stored] ?? stored) : 'Africa'
+  const locationLabel = stored
+    ? (COUNTRIES.find(c => c.code === stored)?.name ?? stored)
+    : 'Africa'
 
   return (
     <header className="fixed top-0 inset-x-0 z-40 bg-gray-900 border-b border-gray-800 h-14 shadow-lg">
@@ -109,9 +106,17 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
         </button>
 
         {/* Search bar */}
-        <div className="flex-1 relative hidden sm:block">
+        <form
+          className="flex-1 relative hidden sm:block"
+          onSubmit={e => {
+            e.preventDefault()
+            const q = (e.currentTarget.elements.namedItem('q') as HTMLInputElement).value.trim()
+            navigate(q ? `/browse?q=${encodeURIComponent(q)}` : '/browse')
+          }}
+        >
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
           <input
+            name="q"
             type="text"
             placeholder={t('market.search')}
             className={clsx(
@@ -120,10 +125,10 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
                 ? 'border-brand-500 ring-1 ring-brand-500/30'
                 : 'border-gray-700 hover:border-gray-600',
             )}
-            onFocus={() => { setSearchFocused(true); navigate('/browse') }}
+            onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
           />
-        </div>
+        </form>
 
         {/* Right actions */}
         <div className="flex items-center gap-1 ml-auto sm:ml-0">

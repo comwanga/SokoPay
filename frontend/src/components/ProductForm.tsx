@@ -78,11 +78,30 @@ export default function ProductForm() {
     const total = pendingImages.length + (existing?.images.length ?? 0)
     const allowed = Math.min(files.length, 5 - total)
     if (allowed <= 0) return
-    const chosen = files.slice(0, allowed)
-    setPendingImages(prev => [...prev, ...chosen])
-    chosen.forEach(f => {
-      setPendingPreviews(prev => [...prev, URL.createObjectURL(f)])
-    })
+
+    const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+    const MAX_SIZE_MB   = 10
+
+    const valid: File[] = []
+    const errors: string[] = []
+
+    for (const f of files.slice(0, allowed)) {
+      if (!ALLOWED_TYPES.includes(f.type)) {
+        errors.push(`${f.name}: not a supported image (JPEG, PNG, WebP, GIF)`)
+        continue
+      }
+      if (f.size > MAX_SIZE_MB * 1024 * 1024) {
+        errors.push(`${f.name}: exceeds ${MAX_SIZE_MB} MB limit`)
+        continue
+      }
+      valid.push(f)
+    }
+
+    if (errors.length) alert(errors.join('\n'))
+    if (!valid.length) { e.target.value = ''; return }
+
+    setPendingImages(prev => [...prev, ...valid])
+    valid.forEach(f => setPendingPreviews(prev => [...prev, URL.createObjectURL(f)]))
     e.target.value = ''
   }
 

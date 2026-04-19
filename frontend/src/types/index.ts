@@ -110,6 +110,21 @@ export interface UpdateProductPayload {
 export const PRODUCT_UNITS = ['kg', 'piece', 'bag', 'litre', 'dozen', 'bunch', 'crate'] as const
 export type ProductUnit = (typeof PRODUCT_UNITS)[number]
 
+export const COUNTRIES = [
+  { code: 'KE', name: 'Kenya' },
+  { code: 'UG', name: 'Uganda' },
+  { code: 'TZ', name: 'Tanzania' },
+  { code: 'RW', name: 'Rwanda' },
+  { code: 'ET', name: 'Ethiopia' },
+  { code: 'GH', name: 'Ghana' },
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'ZM', name: 'Zambia' },
+  { code: 'ZW', name: 'Zimbabwe' },
+  { code: 'SN', name: 'Senegal' },
+  { code: 'CI', name: "Côte d'Ivoire" },
+] as const
+
 export const PRODUCT_CATEGORIES = [
   'Food & Groceries',
   'Electronics',

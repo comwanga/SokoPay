@@ -3,22 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   ChevronLeft, ChevronRight, ArrowRight, Zap, ShieldCheck,
-  Globe, Star, BadgeCheck, Clock,
+  Globe, BadgeCheck, Clock,
 } from 'lucide-react'
 import { listProducts, getProduct, formatKes } from '../api/client.ts'
-import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed.ts'
+import { useCountry } from '../hooks/useCountry.ts'
 import ProductCard from './ProductCard.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
 
-// ── Country name map ───────────────────────────────────────────────────────────
+// ── Country name lookup ────────────────────────────────────────────────────────
 
-const COUNTRY_NAMES: Record<string, string> = {
-  KE: 'Kenya', UG: 'Uganda', TZ: 'Tanzania', RW: 'Rwanda',
-  ET: 'Ethiopia', GH: 'Ghana', NG: 'Nigeria', ZA: 'South Africa',
-  ZM: 'Zambia', ZW: 'Zimbabwe', SN: 'Senegal', CI: "Côte d'Ivoire",
+function countryName(code: string) {
+  return COUNTRIES.find(c => c.code === code)?.name ?? code
 }
 
 // ── Hero carousel ─────────────────────────────────────────────────────────────
@@ -239,7 +238,7 @@ function EditorialSpotlight({ category, gradient, tagline }: { category: string;
   const navigate = useNavigate()
   const { data } = useQuery({
     queryKey: ['home-spotlight', category],
-    queryFn: () => listProducts({ category, sort: 'rating', per_page: 4 }),
+    queryFn: () => listProducts({ category, sort: 'rating', in_stock: true, per_page: 4 }),
     staleTime: 60_000,
   })
 
@@ -293,16 +292,14 @@ function EditorialSpotlight({ category, gradient, tagline }: { category: string;
 // ── Delivery location banner ───────────────────────────────────────────────────
 
 function LocationBanner() {
-  const navigate = useNavigate()
-  const stored   = localStorage.getItem('sokopay_country')
-  const label    = stored ? COUNTRY_NAMES[stored] ?? stored : null
-
-  if (!label) return null
-
+  const navigate        = useNavigate()
+  const { country }     = useCountry()
+  if (!country) return null
   return (
     <div className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5">
       <p className="text-xs text-gray-400">
-        Showing items that ship to <span className="font-semibold text-gray-200">{label}</span>
+        Showing items that ship to{' '}
+        <span className="font-semibold text-gray-200">{countryName(country)}</span>
       </p>
       <button
         onClick={() => navigate('/browse')}
@@ -339,25 +336,25 @@ function TrustBar() {
 
 export default function HomePage() {
   const { t } = useTranslation()
-  const country = localStorage.getItem('sokopay_country') ?? undefined
-  const countryName = country ? COUNTRY_NAMES[country] : undefined
+  const { country } = useCountry()
+  const label = country ? countryName(country) : undefined
 
   const { data: topPicks } = useQuery({
     queryKey: ['home-top-picks', country],
-    queryFn: () => listProducts({ sort: 'rating', country, per_page: 12 }),
+    queryFn: () => listProducts({ sort: 'rating', country: country || undefined, in_stock: true, per_page: 12 }),
     staleTime: 60_000,
     enabled: !!country,
   })
 
   const { data: trending } = useQuery({
-    queryKey: ['home-trending'],
-    queryFn: () => listProducts({ sort: 'rating', per_page: 12 }),
+    queryKey: ['home-trending', country],
+    queryFn: () => listProducts({ sort: 'rating', country: country || undefined, in_stock: true, per_page: 12 }),
     staleTime: 60_000,
   })
 
   const { data: newArrivals } = useQuery({
-    queryKey: ['home-new-arrivals'],
-    queryFn: () => listProducts({ sort: 'newest', per_page: 12 }),
+    queryKey: ['home-new-arrivals', country],
+    queryFn: () => listProducts({ sort: 'newest', country: country || undefined, in_stock: true, per_page: 12 }),
     staleTime: 60_000,
   })
 
@@ -379,7 +376,7 @@ export default function HomePage() {
       {/* Top picks for your country */}
       {country && topPicks && topPicks.length > 0 && (
         <ProductRow
-          title={`Top Picks for ${countryName}`}
+          title={`Top Picks for ${label}`}
           products={topPicks}
           viewAllLink={`/browse?country=${country}&sort=rating`}
         />

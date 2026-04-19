@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, createSearchParams } from 'react-router-dom'
+import { useCountry } from '../hooks/useCountry.ts'
 import { Search, Package, Globe, ChevronDown, Loader2, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react'
 import { listProductsPage } from '../api/client.ts'
-import { PRODUCT_CATEGORIES, CATEGORY_ICONS } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
@@ -17,23 +18,6 @@ const SORT_I18N_KEYS: Record<SortOption, string> = {
   price_desc: 'market.sort.price_desc',
   rating: 'market.sort.rating',
 }
-
-// ── Country list (ISO alpha-2 + display name) ─────────────────────────────────
-
-const COUNTRIES = [
-  { code: 'KE', name: 'Kenya' },
-  { code: 'UG', name: 'Uganda' },
-  { code: 'TZ', name: 'Tanzania' },
-  { code: 'RW', name: 'Rwanda' },
-  { code: 'ET', name: 'Ethiopia' },
-  { code: 'GH', name: 'Ghana' },
-  { code: 'NG', name: 'Nigeria' },
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'ZM', name: 'Zambia' },
-  { code: 'ZW', name: 'Zimbabwe' },
-  { code: 'SN', name: 'Senegal' },
-  { code: 'CI', name: "Côte d'Ivoire" },
-]
 
 // ── Country selector ──────────────────────────────────────────────────────────
 
@@ -96,9 +80,12 @@ const PAGE_SIZE = 24
 
 export default function Marketplace() {
   const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [category, setCategory] = useState<string>('')
+  const [searchParams] = useSearchParams()
+
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
+  const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('q') ?? '')
+  const [category, setCategory] = useState<string>(() => searchParams.get('category') ?? '')
+  const { saveCountry } = useCountry()
   const [country, setCountry] = useState<string>(
     () => localStorage.getItem('sokopay_country') ?? '',
   )
@@ -106,10 +93,12 @@ export default function Marketplace() {
 
   // Filter panel state
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [sort, setSort] = useState<SortOption>('newest')
-  const [minPrice, setMinPrice] = useState('')
-  const [maxPrice, setMaxPrice] = useState('')
-  const [inStockOnly, setInStockOnly] = useState(false)
+  const [sort, setSort] = useState<SortOption>(
+    () => (searchParams.get('sort') as SortOption | null) ?? 'newest',
+  )
+  const [minPrice, setMinPrice] = useState(() => searchParams.get('min_price') ?? '')
+  const [maxPrice, setMaxPrice] = useState(() => searchParams.get('max_price') ?? '')
+  const [inStockOnly, setInStockOnly] = useState(() => searchParams.get('in_stock') === 'true')
 
   // Cursor state for "load more" — reset when filters change
   const [cursor, setCursor] = useState<string | undefined>(undefined)
@@ -121,6 +110,20 @@ export default function Marketplace() {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400)
     return () => clearTimeout(timer)
   }, [search])
+
+  // Sync active filters to URL so back-navigation restores state
+  useEffect(() => {
+    const params: Record<string, string> = {}
+    if (debouncedSearch) params.q          = debouncedSearch
+    if (category)        params.category   = category
+    if (country)         params.country    = country
+    if (sort !== 'newest') params.sort     = sort
+    if (minPrice)        params.min_price  = minPrice
+    if (maxPrice)        params.max_price  = maxPrice
+    if (inStockOnly)     params.in_stock   = 'true'
+    navigate({ search: createSearchParams(params).toString() }, { replace: true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, category, country, sort, minPrice, maxPrice, inStockOnly])
 
   const activeFilterCount = (sort !== 'newest' ? 1 : 0) + (minPrice ? 1 : 0) + (maxPrice ? 1 : 0) + (inStockOnly ? 1 : 0)
 
@@ -192,8 +195,7 @@ export default function Marketplace() {
         <CountrySelector value={country} onChange={c => {
           setCountry(c)
           setScope('country')
-          if (c) localStorage.setItem('sokopay_country', c)
-          else localStorage.removeItem('sokopay_country')
+          saveCountry(c)
         }} />
       </div>
 

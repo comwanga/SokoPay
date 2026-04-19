@@ -305,6 +305,7 @@ export async function listProducts(params?: {
   country?: string
   ships_to?: string
   sort?: 'newest' | 'price_asc' | 'price_desc' | 'rating'
+  in_stock?: boolean
 }): Promise<Product[]> {
   const qs = new URLSearchParams()
   if (params?.category) qs.set('category', params.category)
@@ -316,6 +317,7 @@ export async function listProducts(params?: {
   if (params?.country) qs.set('country', params.country)
   if (params?.ships_to) qs.set('ships_to', params.ships_to)
   if (params?.sort) qs.set('sort', params.sort)
+  if (params?.in_stock) qs.set('in_stock', 'true')
   const str = qs.toString()
   return request<Product[]>(`/products${str ? `?${str}` : ''}`)
 }

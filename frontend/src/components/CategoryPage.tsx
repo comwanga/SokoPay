@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Package, Loader2 } from 'lucide-react'
 import { listProducts } from '../api/client.ts'
-import { CATEGORY_ICONS, PRODUCT_CATEGORIES } from '../types'
+import { CATEGORY_ICONS, PRODUCT_CATEGORIES, type ProductCategory } from '../types'
 import ProductCard from './ProductCard.tsx'
 import clsx from 'clsx'
 
@@ -33,7 +33,7 @@ const CATEGORY_TAGLINES: Record<string, string> = {
   'Property':           'Land, housing, and commercial spaces for rent or sale',
   'Agriculture':        'Seeds, fertilisers, tools, and farm equipment',
   'Crafts & Art':       'Handmade goods, artwork, and creative pieces',
-  'Other':              'Everything else — if it exists, it's here',
+  'Other':              "Everything else — if it exists, it's here",
 }
 
 // ── Related categories ────────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ export default function CategoryPage() {
     enabled:   !!decoded,
   })
 
-  if (!decoded || !PRODUCT_CATEGORIES.includes(decoded as never)) {
+  if (!decoded || !(PRODUCT_CATEGORIES as readonly string[]).includes(decoded)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4">
         <p className="text-gray-400">Category not found.</p>

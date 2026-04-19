@@ -77,27 +77,31 @@ export default function ProductDetail() {
     if (id && product) pushRecent(id)
   }, [id, product, pushRecent])
 
-  // ── Poll M-Pesa status while waiting for Daraja callback ─────────────────────
+  // ── Poll M-Pesa status with exponential backoff ───────────────────────────────
   useEffect(() => {
     if (buyStep !== 'mpesa-pending' || !mpesaCheckoutId) return
+    let delay = 3000
+    let timeoutId: ReturnType<typeof setTimeout>
 
-    const interval = setInterval(async () => {
+    async function poll() {
       try {
-        const result = await getMpesaPaymentStatus(mpesaCheckoutId)
+        const result = await getMpesaPaymentStatus(mpesaCheckoutId!)
         if (result.status !== 'pending') {
-          clearInterval(interval)
           setMpesaStatus(result.status)
           setMpesaReceipt(result.mpesa_receipt_number ?? null)
           if (result.status === 'paid') {
             qc.invalidateQueries({ queryKey: ['orders'] })
             setBuyStep('done')
           }
-          // On failed/cancelled: stay on 'mpesa-pending' so we can show the error
+          return
         }
-      } catch { /* ignore transient poll errors */ }
-    }, 3000)
+      } catch { /* ignore transient errors */ }
+      delay = Math.min(delay * 2, 30_000)
+      timeoutId = setTimeout(poll, delay)
+    }
 
-    return () => clearInterval(interval)
+    timeoutId = setTimeout(poll, delay)
+    return () => clearTimeout(timeoutId)
   }, [buyStep, mpesaCheckoutId, qc])
 
   // ── Poll order status while Lightning invoice is active (BTCPay auto-settle) ─
@@ -105,19 +109,24 @@ export default function ProductDetail() {
   // to 'paid'. Polling detects this without requiring a manual preimage paste.
   useEffect(() => {
     if ((buyStep !== 'invoice' && buyStep !== 'paying') || !orderId || invoiceExpired) return
+    let delay = 3000
+    let timeoutId: ReturnType<typeof setTimeout>
 
-    const interval = setInterval(async () => {
+    async function poll() {
       try {
-        const order = await getOrder(orderId)
+        const order = await getOrder(orderId!)
         if (order.status === 'paid') {
-          clearInterval(interval)
           qc.invalidateQueries({ queryKey: ['orders'] })
           setBuyStep('done')
+          return
         }
       } catch { /* ignore transient errors */ }
-    }, 3000)
+      delay = Math.min(delay * 2, 30_000)
+      timeoutId = setTimeout(poll, delay)
+    }
 
-    return () => clearInterval(interval)
+    timeoutId = setTimeout(poll, delay)
+    return () => clearTimeout(timeoutId)
   }, [buyStep, orderId, invoiceExpired, qc])
 
   // ── Step 1: create order, then go to method selection ────────────────────────

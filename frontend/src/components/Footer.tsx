@@ -43,7 +43,8 @@ export default function Footer() {
     </div>
   )
 
-  const LANGUAGES: SupportedLanguage[] = ['English', 'Swahili', 'French']
+  // French is a stub — hide until fully translated
+  const LANGUAGES: SupportedLanguage[] = ['English', 'Swahili']
 
   return (
     <footer className="hidden md:block bg-gray-900 border-t border-gray-800 mt-auto">
@@ -51,26 +52,26 @@ export default function Footer() {
 
       {/* Link columns */}
       <div className="max-w-screen-xl mx-auto px-6 py-10 grid grid-cols-2 sm:grid-cols-4 gap-8">
-        {col('Get to Know Us', [
-          { label: 'About SokoPay', path: '/' },
+        {col('Marketplace', [
+          { label: 'Browse All Products', path: '/browse' },
           { label: 'Price Index', path: '/price-index' },
-          { label: 'Blog & Updates', path: '/' },
-        ])}
-        {col('Make Money With Us', [
           { label: 'Sell on SokoPay', path: '/sell' },
+        ])}
+        {col('Your Account', [
+          { label: t('nav.orders'), path: '/orders' },
+          { label: t('nav.payments'), path: '/payments' },
+          { label: t('nav.profile'), path: '/profile' },
+          { label: t('nav.settings'), path: '/settings' },
+        ])}
+        {col('Selling', [
+          { label: 'My Listings', path: '/sell' },
           { label: 'New Listing', path: '/sell/new' },
           { label: 'Referral Programme', path: '/profile' },
         ])}
         {col('Payment Methods', [
-          { label: '⚡ Lightning Network', path: '/' },
-          { label: '📱 M-Pesa (Daraja)', path: '/' },
+          { label: '⚡ Lightning Network', path: '/browse' },
+          { label: '📱 M-Pesa (Daraja)', path: '/browse' },
           { label: '🔒 Escrow Protection', path: '/browse' },
-        ])}
-        {col('Let Us Help You', [
-          { label: t('nav.orders'), path: '/orders' },
-          { label: t('nav.profile'), path: '/profile' },
-          { label: t('nav.settings'), path: '/settings' },
-          { label: 'Disputes & Support', path: '/orders' },
         ])}
       </div>
 
