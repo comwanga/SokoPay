@@ -315,6 +315,10 @@ export const COUNTRIES = [
   { code: 'VU', name: 'Vanuatu' },
 ] as const
 
+export function countryName(code: string): string {
+  return COUNTRIES.find(c => c.code === code)?.name ?? code
+}
+
 export const PRODUCT_CATEGORIES = [
   'Food & Groceries',
   'Electronics',
@@ -605,4 +609,13 @@ export interface AnalyticsResponse {
   top_products: ProductStat[]
   recent_orders: OrderSummary[]
   monthly_revenue: MonthlyRevenue[]
+}
+
+
+// Shared checkout types used by CartPage and CartDrawer
+export type ItemStatus = 'idle' | 'pending' | 'done' | 'error'
+export interface OrderResult {
+  productId: string
+  status: ItemStatus
+  error?: string
 }

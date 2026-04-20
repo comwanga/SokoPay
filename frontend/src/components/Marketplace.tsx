@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useCountry } from '../hooks/useCountry.ts'
 import { Search, Package, Globe, ChevronDown, Loader2, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react'
 import { listProductsPage } from '../api/client.ts'
-import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES, countryName } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
@@ -108,15 +108,18 @@ export default function Marketplace() {
     return () => clearTimeout(timer)
   }, [search])
 
+  const syncedOnce = useRef(false)
   useEffect(() => {
+    // Skip on mount — state was already initialised from the URL
+    if (!syncedOnce.current) { syncedOnce.current = true; return }
     const params: Record<string, string> = {}
-    if (debouncedSearch) params.q          = debouncedSearch
-    if (category)        params.category   = category
-    if (country)         params.country    = country
-    if (sort !== 'newest') params.sort     = sort
-    if (minPrice)        params.min_price  = minPrice
-    if (maxPrice)        params.max_price  = maxPrice
-    if (inStockOnly)     params.in_stock   = 'true'
+    if (debouncedSearch)   params.q         = debouncedSearch
+    if (category)          params.category  = category
+    if (country)           params.country   = country
+    if (sort !== 'newest') params.sort      = sort
+    if (minPrice)          params.min_price = minPrice
+    if (maxPrice)          params.max_price = maxPrice
+    if (inStockOnly)       params.in_stock  = 'true'
     setSearchParams(params, { replace: true })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch, category, country, sort, minPrice, maxPrice, inStockOnly])
@@ -236,7 +239,7 @@ export default function Marketplace() {
                 scope === 'country' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200',
               )}
             >
-              {COUNTRIES.find(c => c.code === country)?.name ?? t('market.local')}
+              {country ? countryName(country) : t('market.local')}
             </button>
             <button
               onClick={() => setScope('global')}
@@ -366,7 +369,7 @@ export default function Marketplace() {
         <p className="text-xs text-gray-600 -mt-1">
           {products.length} listing{products.length !== 1 ? 's' : ''}
           {category ? ` · ${category}` : ''}
-          {country ? ` · ${COUNTRIES.find(c => c.code === country)?.name}` : ''}
+          {country ? ` · ${countryName(country)}` : ''}
           {debouncedSearch ? ` matching "${debouncedSearch}"` : ''}
         </p>
       )}

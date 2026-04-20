@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
 
+declare global {
+  interface WindowEventMap {
+    'sokopay:country': CustomEvent<string>
+  }
+}
+
 const KEY = 'sokopay_country'
 
 export function useCountry() {
@@ -7,14 +13,13 @@ export function useCountry() {
     () => localStorage.getItem(KEY) ?? '',
   )
 
-  // React to changes made in other components (storage event fires cross-tab;
-  // for same-tab changes we dispatch a custom event from setCountry callers)
   useEffect(() => {
+    // storage fires cross-tab; sokopay:country fires same-tab (dispatched by saveCountry)
     function onStorage(e: StorageEvent) {
       if (e.key === KEY) setCountry(e.newValue ?? '')
     }
-    function onLocal(e: Event) {
-      setCountry((e as CustomEvent<string>).detail)
+    function onLocal(e: CustomEvent<string>) {
+      setCountry(prev => prev === e.detail ? prev : e.detail)
     }
     window.addEventListener('storage', onStorage)
     window.addEventListener('sokopay:country', onLocal)
@@ -27,8 +32,7 @@ export function useCountry() {
   function saveCountry(code: string) {
     if (code) localStorage.setItem(KEY, code)
     else localStorage.removeItem(KEY)
-    setCountry(code)
-    // Notify same-tab listeners
+    // Dispatch to all hook instances in this tab (storage event only fires cross-tab)
     window.dispatchEvent(new CustomEvent('sokopay:country', { detail: code }))
   }
 

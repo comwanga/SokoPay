@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { NavLink, useNavigate, Link } from 'react-router-dom'
 import {
   ShoppingBag, Package, Store, TrendingUp, AlertCircle,
@@ -13,7 +13,7 @@ import { useAuth } from '../context/auth.tsx'
 import { useDisplaySettings } from '../context/displaySettings.tsx'
 import { useTranslation } from '../i18n/index.tsx'
 import { useCart } from '../context/cart.tsx'
-import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS, countryName } from '../types'
 import CurrencyConverter from './CurrencyConverter.tsx'
 import CartDrawer from './CartDrawer.tsx'
 import Footer from './Footer.tsx'
@@ -66,9 +66,7 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
   const [searchFocused, setSearchFocused] = useState(false)
 
   const stored = localStorage.getItem('sokopay_country')
-  const locationLabel = stored
-    ? (COUNTRIES.find(c => c.code === stored)?.name ?? stored)
-    : 'Africa'
+  const locationLabel = stored ? countryName(stored) : 'Africa'
 
   return (
     <header className="fixed top-0 inset-x-0 z-40 bg-gray-900 border-b border-gray-800 h-14 shadow-lg">
@@ -487,6 +485,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const closeMenu     = useCallback(() => setMenuOpen(false), [])
   const openConverter = useCallback(() => setConverterOpen(true), [])
   const openCart      = useCallback(() => setCartOpen(true), [])
+
+  // Auto-dismiss auth error after 8 seconds
+  useEffect(() => {
+    if (!error) return
+    const t = setTimeout(clearError, 8000)
+    return () => clearTimeout(t)
+  }, [error, clearError])
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">

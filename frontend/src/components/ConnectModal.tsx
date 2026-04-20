@@ -51,6 +51,23 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
     setTimeout(() => setCopied(null), 2000)
   }
 
+  async function loginWithSk(
+    sk: Uint8Array,
+    setError: (msg: string | null) => void,
+    setLoading: (v: boolean) => void,
+  ) {
+    setLoading(true)
+    try {
+      setLocalSecretKey(sk)
+      await nostrLoginWithKey(sk)
+      onSuccess()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sign-in failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleNsecLogin() {
     setNsecError(null)
     const val = nsecInput.trim()
@@ -73,16 +90,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
       return
     }
 
-    setNsecLoading(true)
-    try {
-      setLocalSecretKey(sk)
-      await nostrLoginWithKey(sk)
-      onSuccess()
-    } catch (e) {
-      setNsecError(e instanceof Error ? e.message : 'Sign-in failed')
-    } finally {
-      setNsecLoading(false)
-    }
+    await loginWithSk(sk, setNsecError, setNsecLoading)
   }
 
   async function handlePasswordLogin() {
@@ -104,16 +112,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
 
   async function handleGenerateLogin() {
     setGenError(null)
-    setGenLoading(true)
-    try {
-      setLocalSecretKey(genKey.sk)
-      await nostrLoginWithKey(genKey.sk)
-      onSuccess()
-    } catch (e) {
-      setGenError(e instanceof Error ? e.message : 'Sign-in failed')
-    } finally {
-      setGenLoading(false)
-    }
+    await loginWithSk(genKey.sk, setGenError, setGenLoading)
   }
 
 

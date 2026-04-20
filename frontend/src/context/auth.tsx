@@ -47,22 +47,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const onSuccess = useCallback(async () => {
+    const wasAuthed = authed
     setAuthed(true)
     setRole(getRole())
     setConnecting(false)
     setShowModal(false)
-    // Redirect to profile setup if Lightning Address not yet set
-    try {
-      const payload = getTokenPayload()
-      if (payload?.farmer_id) {
-        const farmer = await getProfile(payload.farmer_id)
-        if (!farmer.ln_address) navigate('/profile?setup=1', { replace: true })
-      }
-    } catch { /* non-fatal */ }
-  }, [navigate])
+    // Only check Lightning Address on first login — not on every modal re-auth
+    if (!wasAuthed) {
+      try {
+        const payload = getTokenPayload()
+        if (payload?.farmer_id) {
+          const farmer = await getProfile(payload.farmer_id)
+          if (!farmer.ln_address) navigate('/profile?setup=1', { replace: true })
+        }
+      } catch { /* non-fatal */ }
+    }
+  }, [navigate, authed])
 
   // Proactive token refresh: keep sessions alive without forcing re-login.
-  // Checks every 15 min; refreshes if less than 2 hours remain on the token.
   useEffect(() => {
     function checkAndRefresh() {
       const payload = getTokenPayload() as { exp?: number } | null
@@ -86,24 +88,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authed])
 
-  // Silent background auth — tries window.nostr (Fedi) or a stored key.
-  // Polls up to ~1s to handle Fedi injecting window.nostr slightly after mount.
+  // Polls up to ~1s for window.nostr (Fedi injects it slightly after mount).
+  // getLocalSecretKey is read once before the interval — it won't change during this window.
   useEffect(() => {
     if (authed) return
     let attempts = 0
-    const MAX = 5
+    let mounted  = true
+    const MAX        = 5
+    const storedKey  = getLocalSecretKey()
     const iv = setInterval(() => {
       attempts++
-      const hasSigner = !!window.nostr || !!getLocalSecretKey()
+      const hasSigner = !!window.nostr || !!storedKey
       if (hasSigner) {
         clearInterval(iv)
         setConnecting(true)
         nostrLogin()
-          .then(onSuccess)
+          .then(() => { if (mounted) onSuccess() })
           .catch(e => {
+            if (!mounted) return
             setConnecting(false)
-            // Only surface errors that aren't "no signer available" —
-            // that's expected when running outside Fedi/without a stored key
             const msg = e instanceof Error ? e.message : ''
             if (msg && msg !== 'NO_SIGNER') setError(msg)
           })
@@ -111,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearInterval(iv)
       }
     }, 200)
-    return () => clearInterval(iv)
+    return () => { mounted = false; clearInterval(iv) }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const connect = useCallback(async () => {

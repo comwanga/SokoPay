@@ -6,7 +6,7 @@ import {
   Globe, BadgeCheck, Clock,
 } from 'lucide-react'
 import { listProducts, getProduct, formatKes } from '../api/client.ts'
-import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES } from '../types'
+import { PRODUCT_CATEGORIES, CATEGORY_ICONS, countryName } from '../types'
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed.ts'
 import { useCountry } from '../hooks/useCountry.ts'
 import ProductCard from './ProductCard.tsx'
@@ -14,9 +14,6 @@ import clsx from 'clsx'
 import type { Product } from '../types'
 
 
-function countryName(code: string) {
-  return COUNTRIES.find(c => c.code === code)?.name ?? code
-}
 
 
 const HERO_SLIDES = [
