@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
 import { AlertCircle, RefreshCw, Eye, EyeOff, X, Zap, Lock } from 'lucide-react'
-import { pubkeyAuth, nostrLoginWithKey, setLocalSecretKey, login } from '../api/client.ts'
+import { nostrLoginWithKey, setLocalSecretKey, login } from '../api/client.ts'
 
 interface Props {
   onSuccess: () => void
   onCancel: () => void
 }
 
-type Tab = 'pubkey' | 'generate' | 'password'
+type Tab = 'nsec' | 'generate' | 'password'
 
 function makeKey() {
   const sk = generateSecretKey()
@@ -23,21 +23,22 @@ function makeKey() {
 }
 
 export default function ConnectModal({ onSuccess, onCancel }: Props) {
-  const [tab, setTab] = useState<Tab>('pubkey')
+  const [tab, setTab] = useState<Tab>('nsec')
 
-  // ── "I have a key" state ────────────────────────────────────────────────────
-  const [pubkeyInput, setPubkeyInput] = useState('')
-  const [pubkeyError, setPubkeyError] = useState<string | null>(null)
-  const [pubkeyLoading, setPubkeyLoading] = useState(false)
+  // "I have a key" — accepts nsec private key
+  const [nsecInput, setNsecInput] = useState('')
+  const [nsecError, setNsecError] = useState<string | null>(null)
+  const [nsecLoading, setNsecLoading] = useState(false)
+  const [showNsecInput, setShowNsecInput] = useState(false)
 
-  // ── "Username/password" state ───────────────────────────────────────────────
+  // Username/password
   const [pwUsername, setPwUsername] = useState('')
   const [pwPassword, setPwPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [pwError, setPwError] = useState<string | null>(null)
   const [pwLoading, setPwLoading] = useState(false)
 
-  // ── "New identity" state ────────────────────────────────────────────────────
+  // New identity
   const [genKey, setGenKey] = useState(() => makeKey())
   const [showNsec, setShowNsec] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -50,39 +51,37 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
+  async function handleNsecLogin() {
+    setNsecError(null)
+    const val = nsecInput.trim()
+    if (!val) { setNsecError('Paste your nsec key first.'); return }
 
-  async function handlePubkeyLogin() {
-    setPubkeyError(null)
-    const val = pubkeyInput.trim()
-    if (!val) { setPubkeyError('Paste your public key first.'); return }
-
-    let hexPubkey: string
-
+    let sk: Uint8Array
     try {
-      if (val.startsWith('npub1')) {
+      if (val.startsWith('nsec1')) {
         const decoded = nip19.decode(val)
-        if (decoded.type !== 'npub') throw new Error('Not an npub')
-        hexPubkey = decoded.data as string
+        if (decoded.type !== 'nsec') throw new Error('Not an nsec')
+        sk = decoded.data as Uint8Array
       } else if (/^[0-9a-f]{64}$/i.test(val)) {
-        hexPubkey = val.toLowerCase()
+        sk = new Uint8Array(val.match(/.{2}/g)!.map(b => parseInt(b, 16)))
       } else {
-        setPubkeyError('Paste your npub (npub1…) or 64-character hex public key.')
+        setNsecError('Paste your nsec (nsec1…) or 64-character hex private key.')
         return
       }
     } catch {
-      setPubkeyError('Could not decode that key. Make sure you copied the full npub.')
+      setNsecError('Could not decode that key. Make sure you copied the full nsec.')
       return
     }
 
-    setPubkeyLoading(true)
+    setNsecLoading(true)
     try {
-      await pubkeyAuth(hexPubkey)
+      setLocalSecretKey(sk)
+      await nostrLoginWithKey(sk)
       onSuccess()
     } catch (e) {
-      setPubkeyError(e instanceof Error ? e.message : 'Sign-in failed')
+      setNsecError(e instanceof Error ? e.message : 'Sign-in failed')
     } finally {
-      setPubkeyLoading(false)
+      setNsecLoading(false)
     }
   }
 
@@ -117,7 +116,6 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
     }
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -148,7 +146,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-800 rounded-lg p-1 mx-5 mt-4">
           {([
-            ['pubkey', 'Nostr key'],
+            ['nsec', 'I have a key'],
             ['generate', 'New identity'],
             ['password', 'Password'],
           ] as [Tab, string][]).map(([t, label]) => (
@@ -168,50 +166,62 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
 
         <div className="p-5 space-y-4">
 
-          {/* ── Tab: I have a key (npub) ───────────────────────────────── */}
-          {tab === 'pubkey' && (
+          {tab === 'nsec' && (
             <>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-400">
-                  Paste your Nostr public key
-                </label>
-                <input
-                  type="text"
-                  placeholder="npub1… or 64-char hex"
-                  value={pubkeyInput}
-                  onChange={e => { setPubkeyInput(e.target.value); setPubkeyError(null) }}
-                  onKeyDown={e => e.key === 'Enter' && handlePubkeyLogin()}
-                  className="input-base font-mono text-xs"
-                  autoComplete="off"
-                  autoFocus
-                />
-                <p className="text-[11px] text-gray-600">
-                  Your public key (npub) identifies you on Nostr. It starts with <code className="text-gray-500">npub1</code>.
+              <div className="flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2.5">
+                <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-yellow-300 leading-snug">
+                  Your <strong>nsec</strong> is your private key. Never share it. Only paste it on a device you trust.
                 </p>
               </div>
 
-              {pubkeyError && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-400">
+                  Paste your private key (nsec)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNsecInput ? 'text' : 'password'}
+                    placeholder="nsec1… or 64-char hex"
+                    value={nsecInput}
+                    onChange={e => { setNsecInput(e.target.value); setNsecError(null) }}
+                    onKeyDown={e => e.key === 'Enter' && handleNsecLogin()}
+                    className="input-base font-mono text-xs pr-8 w-full"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNsecInput(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  >
+                    {showNsecInput ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-600">
+                  Your private key starts with <code className="text-gray-500">nsec1</code>. You saved it when you first created your identity.
+                </p>
+              </div>
+
+              {nsecError && (
                 <div className="flex gap-2 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
                   <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-400">{pubkeyError}</p>
+                  <p className="text-xs text-red-400">{nsecError}</p>
                 </div>
               )}
 
               <button
-                onClick={handlePubkeyLogin}
-                disabled={pubkeyLoading}
+                onClick={handleNsecLogin}
+                disabled={nsecLoading}
                 className="btn-primary w-full justify-center"
               >
-                {pubkeyLoading ? 'Signing in…' : 'Sign in'}
+                {nsecLoading ? 'Signing in…' : 'Sign in'}
               </button>
 
               <p className="text-[11px] text-gray-600 text-center">
-                Don't have a key?{' '}
-                <button
-                  onClick={() => setTab('generate')}
-                  className="text-brand-400 hover:text-brand-300"
-                >
-                  Generate one →
+                No key yet?{' '}
+                <button onClick={() => setTab('generate')} className="text-brand-400 hover:text-brand-300">
+                  Generate one free →
                 </button>
               </p>
             </>
