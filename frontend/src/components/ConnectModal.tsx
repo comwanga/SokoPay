@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
-import { AlertCircle, RefreshCw, Eye, EyeOff, X, Zap, Lock } from 'lucide-react'
-import { nostrLoginWithKey, setLocalSecretKey, login } from '../api/client.ts'
+import { AlertCircle, RefreshCw, Eye, EyeOff, X, Zap, Lock, Puzzle, ExternalLink } from 'lucide-react'
+import { nostrLogin, setLocalSecretKey, login } from '../api/client.ts'
 
 interface Props {
   onSuccess: () => void
   onCancel: () => void
 }
 
-type Tab = 'nsec' | 'generate' | 'password'
+type Tab = 'extension' | 'generate' | 'password'
 
 function makeKey() {
   const sk = generateSecretKey()
@@ -22,23 +22,28 @@ function makeKey() {
   }
 }
 
+const EXTENSION_LINKS = [
+  { name: 'Alby', url: 'https://getalby.com', desc: 'Best for desktop — also handles Lightning' },
+  { name: 'nos2x', url: 'https://chrome.google.com/webstore/detail/nos2x/kpgefcfmnafjgpblomihpgmejjdanjjp', desc: 'Lightweight Chrome extension' },
+  { name: 'Flamingo', url: 'https://www.flamingo.social', desc: 'Firefox extension' },
+]
+
 export default function ConnectModal({ onSuccess, onCancel }: Props) {
-  const [tab, setTab] = useState<Tab>('nsec')
+  const [tab, setTab] = useState<Tab>('extension')
+  const hasExtension = typeof window !== 'undefined' && !!window.nostr
 
-  // "I have a key" — accepts nsec private key
-  const [nsecInput, setNsecInput] = useState('')
-  const [nsecError, setNsecError] = useState<string | null>(null)
-  const [nsecLoading, setNsecLoading] = useState(false)
-  const [showNsecInput, setShowNsecInput] = useState(false)
+  // Extension tab
+  const [extError, setExtError] = useState<string | null>(null)
+  const [extLoading, setExtLoading] = useState(false)
 
-  // Username/password
+  // Username/password tab
   const [pwUsername, setPwUsername] = useState('')
   const [pwPassword, setPwPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [pwError, setPwError] = useState<string | null>(null)
   const [pwLoading, setPwLoading] = useState(false)
 
-  // New identity
+  // New identity tab
   const [genKey, setGenKey] = useState(() => makeKey())
   const [showNsec, setShowNsec] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -51,46 +56,17 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  async function loginWithSk(
-    sk: Uint8Array,
-    setError: (msg: string | null) => void,
-    setLoading: (v: boolean) => void,
-  ) {
-    setLoading(true)
+  async function handleExtensionLogin() {
+    setExtError(null)
+    setExtLoading(true)
     try {
-      setLocalSecretKey(sk)
-      await nostrLoginWithKey(sk)
+      await nostrLogin()
       onSuccess()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Sign-in failed')
+      setExtError(e instanceof Error ? e.message : 'Sign-in failed')
     } finally {
-      setLoading(false)
+      setExtLoading(false)
     }
-  }
-
-  async function handleNsecLogin() {
-    setNsecError(null)
-    const val = nsecInput.trim()
-    if (!val) { setNsecError('Paste your nsec key first.'); return }
-
-    let sk: Uint8Array
-    try {
-      if (val.startsWith('nsec1')) {
-        const decoded = nip19.decode(val)
-        if (decoded.type !== 'nsec') throw new Error('Not an nsec')
-        sk = decoded.data as Uint8Array
-      } else if (/^[0-9a-f]{64}$/i.test(val)) {
-        sk = new Uint8Array(val.match(/.{2}/g)!.map(b => parseInt(b, 16)))
-      } else {
-        setNsecError('Paste your nsec (nsec1…) or 64-character hex private key.')
-        return
-      }
-    } catch {
-      setNsecError('Could not decode that key. Make sure you copied the full nsec.')
-      return
-    }
-
-    await loginWithSk(sk, setNsecError, setNsecLoading)
   }
 
   async function handlePasswordLogin() {
@@ -112,9 +88,17 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
 
   async function handleGenerateLogin() {
     setGenError(null)
-    await loginWithSk(genKey.sk, setGenError, setGenLoading)
+    setGenLoading(true)
+    try {
+      setLocalSecretKey(genKey.sk)
+      await nostrLogin()
+      onSuccess()
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : 'Sign-in failed')
+    } finally {
+      setGenLoading(false)
+    }
   }
-
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
@@ -145,7 +129,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-800 rounded-lg p-1 mx-5 mt-4">
           {([
-            ['nsec', 'I have a key'],
+            ['extension', 'Nostr'],
             ['generate', 'New identity'],
             ['password', 'Password'],
           ] as [Tab, string][]).map(([t, label]) => (
@@ -165,64 +149,69 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
 
         <div className="p-5 space-y-4">
 
-          {tab === 'nsec' && (
+          {/* ── Tab: Nostr extension ─────────────────────────────────── */}
+          {tab === 'extension' && (
             <>
-              <div className="flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2.5">
-                <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-yellow-300 leading-snug">
-                  Your <strong>nsec</strong> is your private key. Never share it. Only paste it on a device you trust.
-                </p>
-              </div>
+              {hasExtension ? (
+                <>
+                  <div className="flex items-start gap-2 bg-green-900/20 border border-green-700/30 rounded-lg px-3 py-2.5">
+                    <Puzzle className="w-3.5 h-3.5 text-green-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-green-300 leading-snug">
+                      Nostr extension detected. Your private key stays in the extension — SokoPay never sees it.
+                    </p>
+                  </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-400">
-                  Paste your private key (nsec)
-                </label>
-                <div className="relative">
-                  <input
-                    type={showNsecInput ? 'text' : 'password'}
-                    placeholder="nsec1… or 64-char hex"
-                    value={nsecInput}
-                    onChange={e => { setNsecInput(e.target.value); setNsecError(null) }}
-                    onKeyDown={e => e.key === 'Enter' && handleNsecLogin()}
-                    className="input-base font-mono text-xs pr-8 w-full"
-                    autoComplete="off"
-                    autoFocus
-                  />
+                  {extError && (
+                    <div className="flex gap-2 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-400">{extError}</p>
+                    </div>
+                  )}
+
                   <button
-                    type="button"
-                    onClick={() => setShowNsecInput(v => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                    onClick={handleExtensionLogin}
+                    disabled={extLoading}
+                    className="btn-primary w-full justify-center"
                   >
-                    {showNsecInput ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <Puzzle className="w-4 h-4" />
+                    {extLoading ? 'Waiting for extension…' : 'Sign in with extension'}
                   </button>
-                </div>
-                <p className="text-[11px] text-gray-600">
-                  Your private key starts with <code className="text-gray-500">nsec1</code>. You saved it when you first created your identity.
-                </p>
-              </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-yellow-300 leading-snug">
+                      No Nostr extension found. Install one to sign in securely — your private key never leaves your device.
+                    </p>
+                  </div>
 
-              {nsecError && (
-                <div className="flex gap-2 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-2">
-                  <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-400">{nsecError}</p>
-                </div>
+                  <div className="space-y-2">
+                    {EXTENSION_LINKS.map(ext => (
+                      <a
+                        key={ext.name}
+                        href={ext.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between bg-gray-800 hover:bg-gray-750 border border-gray-700 rounded-lg px-3 py-2.5 transition-colors group"
+                      >
+                        <div>
+                          <p className="text-xs font-medium text-gray-200">{ext.name}</p>
+                          <p className="text-[10px] text-gray-500">{ext.desc}</p>
+                        </div>
+                        <ExternalLink className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 shrink-0" />
+                      </a>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-gray-600 text-center">
+                    No extension and no Fedi?{' '}
+                    <button onClick={() => setTab('generate')} className="text-brand-400 hover:text-brand-300">
+                      Create a new identity →
+                    </button>
+                  </p>
+                </>
               )}
-
-              <button
-                onClick={handleNsecLogin}
-                disabled={nsecLoading}
-                className="btn-primary w-full justify-center"
-              >
-                {nsecLoading ? 'Signing in…' : 'Sign in'}
-              </button>
-
-              <p className="text-[11px] text-gray-600 text-center">
-                No key yet?{' '}
-                <button onClick={() => setTab('generate')} className="text-brand-400 hover:text-brand-300">
-                  Generate one free →
-                </button>
-              </p>
             </>
           )}
 
@@ -290,6 +279,10 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
           {/* ── Tab: New identity ──────────────────────────────────────── */}
           {tab === 'generate' && (
             <>
+              <p className="text-[11px] text-gray-400 leading-snug">
+                A Nostr keypair will be created for you. Save your <strong className="text-red-400">private key (nsec)</strong> somewhere safe — it's the only way to recover your account on a new device.
+              </p>
+
               <div className="bg-gray-800 rounded-xl p-4 space-y-3 text-xs">
                 {/* npub */}
                 <div>
@@ -319,7 +312,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
                         className="text-[10px] text-gray-400 hover:text-gray-200 flex items-center gap-1"
                       >
                         {showNsec ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        {showNsec ? 'Hide' : 'Show'}
+                        {showNsec ? 'Hide' : 'Reveal'}
                       </button>
                       <button
                         onClick={() => copy(genKey.nsec, 'nsec')}
@@ -338,7 +331,7 @@ export default function ConnectModal({ onSuccess, onCancel }: Props) {
               <div className="flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/30 rounded-lg px-3 py-2.5">
                 <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-yellow-300 leading-snug">
-                  Copy and save your <strong>nsec</strong> somewhere safe — you need it to log in on a new device.
+                  Copy and save your <strong>nsec</strong> somewhere offline before continuing — a password manager or written note. You cannot recover it later.
                 </p>
               </div>
 
