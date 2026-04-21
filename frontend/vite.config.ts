@@ -5,7 +5,11 @@ export default defineConfig(({ command }) => ({
   plugins: [react()],
   // In production builds (GitHub Pages), assets live under /sokopay/.
   // During local dev the server runs at root so the sub-path is not needed.
-  base: command === 'build' ? '/SokoPay/' : '/',
+  // VITE_BASE_PATH is set by CI:
+  //   GitHub Pages workflow → /SokoPay/
+  //   Vercel env vars       → / (root deployment)
+  //   Local dev             → / (proxy handles /api)
+  base: process.env.VITE_BASE_PATH ?? (command === 'build' ? '/SokoPay/' : '/'),
   server: {
     port: 5173,
     proxy: {
