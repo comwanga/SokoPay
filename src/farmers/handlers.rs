@@ -246,11 +246,16 @@ pub async fn update_farmer(
                     MAX_LN_ADDRESS_LEN
                 )));
             }
-            // Basic format check: must contain exactly one '@'
-            let at_count = ln.chars().filter(|&c| c == '@').count();
-            if at_count != 1 {
+            // Accept two formats:
+            //   Lightning Address — user@domain (exactly one '@')
+            //   LNURL             — bech32 string starting with lnurl1
+            // Fedi and many other wallets hand out raw LNURLs, not Lightning Addresses.
+            let is_lightning_address = ln.chars().filter(|&c| c == '@').count() == 1;
+            let is_lnurl = ln.to_lowercase().starts_with("lnurl1");
+            if !is_lightning_address && !is_lnurl {
                 return Err(AppError::BadRequest(
-                    "ln_address must be in user@domain format".into(),
+                    "ln_address must be a Lightning Address (user@domain) or an LNURL (lnurl1…)"
+                        .into(),
                 ));
             }
         }

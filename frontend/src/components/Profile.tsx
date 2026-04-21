@@ -306,17 +306,33 @@ export default function Profile() {
         </p>
       </div>
 
-      {/* Lightning Address required banner */}
-      {!farmer.ln_address && (
+      {/* Fedi context: prominent LNURL setup prompt */}
+      {isFediContext && !farmer.ln_address && (
+        <div className="flex gap-3 items-start bg-brand-500/10 border border-brand-500/30 rounded-xl p-4">
+          <Zap className="w-4 h-4 text-brand-400 shrink-0 mt-0.5" />
+          <div className="space-y-2 text-sm">
+            <p className="text-brand-300 font-semibold">Add your LNURL to receive payments</p>
+            <p className="text-brand-400/70 text-xs leading-relaxed">
+              SokoPay detected your Nostr wallet. Paste your LNURL below so buyers can pay you instantly — funds go straight to your wallet with no custody.
+            </p>
+            <div className="text-xs text-gray-400 space-y-0.5">
+              <p className="font-medium text-gray-300">Where to find your LNURL:</p>
+              <p>• <strong className="text-gray-200">Fedi app</strong> → your federation → Lightning Address</p>
+              <p>• <strong className="text-gray-200">Alby</strong> → Your account → Lightning Address / LNURL</p>
+              <p>• Any Lightning wallet that supports LNURL-pay</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generic Lightning Address required banner (non-Fedi) */}
+      {!isFediContext && !farmer.ln_address && (
         <div className="flex gap-3 items-start bg-yellow-900/20 border border-yellow-700/30 rounded-xl p-4">
           <AlertCircle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
           <div className="space-y-1 text-sm">
             <p className="text-yellow-300 font-semibold">Lightning Address required to receive payments</p>
             <p className="text-yellow-500/80 text-xs">
-              Buyers pay directly to your Lightning Address — no platform custody.
-              {isFediContext && (
-                <> Find yours in Fedi → your federation → Lightning Address.</>
-              )}
+              Buyers pay directly to your Lightning Address or LNURL — no platform custody.
             </p>
           </div>
         </div>
