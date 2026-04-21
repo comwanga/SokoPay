@@ -142,9 +142,11 @@ function LightningAddressField({ value, savedAddress, onChange, onVerified }: Li
             <div className="flex items-start gap-2 text-xs">
               <span className="text-gray-500 w-28 shrink-0">Max receivable</span>
               <span className="text-gray-200">
-                {info.max_sendable_sats >= 100_000_000
-                  ? `${(info.max_sendable_sats / 100_000_000).toFixed(2)} BTC`
-                  : `${info.max_sendable_sats.toLocaleString()} sats`}
+                {info.max_sendable_sats >= 9_000_000_000_000_000
+                  ? 'No limit'
+                  : info.max_sendable_sats >= 100_000_000
+                    ? `${(info.max_sendable_sats / 100_000_000).toFixed(2)} BTC`
+                    : `${info.max_sendable_sats.toLocaleString()} sats`}
               </span>
             </div>
             <div className="flex items-start gap-2 text-xs">

@@ -9,12 +9,15 @@ use std::time::Duration;
 #[derive(Deserialize)]
 struct LnurlPayParams {
     callback: String,
-    #[serde(rename = "minSendable")]
+    /// Minimum payable amount in millisatoshis. Some wallets omit this or set 0.
+    #[serde(rename = "minSendable", default)]
     min_sendable: i64,
-    #[serde(rename = "maxSendable")]
+    /// Maximum payable amount in millisatoshis.
+    /// Some wallets (including Fedi) return 0 when they have no upper limit —
+    /// non-standard but common. We treat 0 as "no limit enforced by us".
+    #[serde(rename = "maxSendable", default)]
     max_sendable: i64,
     /// Raw metadata JSON string (array of [type, value] pairs per LUD-06).
-    /// sha256(metadata) must match the bolt11 description_hash.
     metadata: Option<String>,
     tag: String,
 }
@@ -259,7 +262,12 @@ impl LnurlClient {
         Ok(LnurlPayInfo {
             address: address.trim().to_string(),
             min_sendable_sats: params.min_sendable / 1_000,
-            max_sendable_sats: params.max_sendable / 1_000,
+            // 0 means no limit — use a large sentinel so the UI shows "No limit"
+            max_sendable_sats: if params.max_sendable > 0 {
+                params.max_sendable / 1_000
+            } else {
+                i64::MAX
+            },
             description,
             callback: params.callback,
         })
@@ -276,13 +284,16 @@ impl LnurlClient {
     ) -> AppResult<LnurlInvoice> {
         let params = self.fetch_pay_params(ln_address).await?;
 
-        if amount_msats < params.min_sendable {
+        // Only enforce min when the wallet sets one above zero.
+        if params.min_sendable > 0 && amount_msats < params.min_sendable {
             return Err(AppError::BadRequest(format!(
                 "Amount {} msats is below the minimum {} msats for this wallet",
                 amount_msats, params.min_sendable
             )));
         }
-        if amount_msats > params.max_sendable {
+        // Only enforce max when the wallet sets a positive limit.
+        // A value of 0 means the wallet did not specify an upper bound.
+        if params.max_sendable > 0 && amount_msats > params.max_sendable {
             return Err(AppError::BadRequest(format!(
                 "Amount {} msats exceeds the maximum {} msats for this wallet",
                 amount_msats, params.max_sendable
