@@ -60,7 +60,7 @@ services:
     volumes:
       - ./frontend:/app
     environment:
-      VITE_API_URL: http://localhost:3001
+      VITE_API_URL: http://localhost:3001/api
     depends_on:
       backend:
         condition: service_healthy
