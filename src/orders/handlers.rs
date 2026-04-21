@@ -486,21 +486,33 @@ pub async fn update_order_status(
         None
     };
 
-    sqlx::query(
+    // Include the old status in the WHERE clause so two concurrent requests
+    // can't both transition the same order (e.g. delivered → confirmed AND
+    // delivered → disputed at the same time). The first one wins; the second
+    // gets rows_affected = 0 and returns 409.
+    let affected = sqlx::query(
         "UPDATE orders SET
             status               = $2,
             seller_delivery_date = COALESCE($3, seller_delivery_date),
             delivery_notes       = COALESCE($4, delivery_notes),
             delivery_photo_url   = COALESCE($5, delivery_photo_url)
-         WHERE id = $1",
+         WHERE id = $1 AND status = $6",
     )
     .bind(id)
     .bind(&body.status)
     .bind(delivery_date)
     .bind(&body.notes)
     .bind(&body.delivery_photo_url)
+    .bind(&meta.status)
     .execute(&state.db)
-    .await?;
+    .await?
+    .rows_affected();
+
+    if affected == 0 {
+        return Err(AppError::Conflict(
+            "Order status was updated by another request — please retry".into(),
+        ));
+    }
 
     if let Err(e) = events::record_order_event(
         &state.db,

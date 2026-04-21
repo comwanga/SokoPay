@@ -132,6 +132,19 @@ pub async fn rate_product(
     .fetch_one(&state.db)
     .await?;
 
+    // Keep the stored summary columns in sync so list_products doesn't need
+    // a GROUP BY on every request.
+    let _ = sqlx::query(
+        "UPDATE products
+         SET rating_count = (SELECT COUNT(*)            FROM product_ratings WHERE product_id = $1),
+             rating_avg   = (SELECT AVG(rating)::float8 FROM product_ratings WHERE product_id = $1)
+         WHERE id = $1",
+    )
+    .bind(product_id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| tracing::warn!(product_id = %product_id, error = %e, "Failed to update product rating summary"));
+
     Ok((StatusCode::CREATED, Json(row.into())))
 }
 

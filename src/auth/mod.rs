@@ -10,6 +10,7 @@ pub use refresh::refresh_token;
 use crate::error::{AppError, AppResult};
 use crate::state::SharedState;
 use axum::{extract::State, Json};
+use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -139,6 +140,48 @@ pub async fn login(
     }
 
     Err(AppError::Unauthorized("Invalid credentials".into()))
+}
+
+/// POST /api/auth/logout
+///
+/// Revokes the caller's current token so it cannot be used again even if it
+/// has not expired yet.  A new token must be obtained via /auth/nostr or /auth/login.
+///
+/// Also cleans up any expired revocation rows to keep the table small.
+pub async fn logout(
+    State(state): State<SharedState>,
+    claims: Claims,
+) -> AppResult<axum::http::StatusCode> {
+    let jti = match claims.jti {
+        Some(j) => j,
+        None => {
+            // Token was issued before jti was added — nothing to revoke.
+            return Ok(axum::http::StatusCode::NO_CONTENT);
+        }
+    };
+
+    // Store the token's expiry so the cleanup query knows when to drop the row.
+    let expires_at = Utc
+        .timestamp_opt(claims.exp as i64, 0)
+        .single()
+        .unwrap_or_else(Utc::now);
+
+    sqlx::query(
+        "INSERT INTO jwt_revocations (jti, expires_at) VALUES ($1, $2)
+         ON CONFLICT (jti) DO NOTHING",
+    )
+    .bind(jti)
+    .bind(expires_at)
+    .execute(&state.db)
+    .await?;
+
+    // Remove rows whose tokens have already expired — they can never be used
+    // anyway, so there is no value in keeping them.
+    let _ = sqlx::query("DELETE FROM jwt_revocations WHERE expires_at < NOW()")
+        .execute(&state.db)
+        .await;
+
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Deserialize)]

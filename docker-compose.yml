@@ -27,6 +27,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - uploads_data:/app/uploads
     environment:
       DATABASE_URL: postgresql://sokopay:sokopay_dev@postgres:5432/sokopay
       RUST_LOG: sokopay=info,tower_http=info
@@ -37,7 +39,10 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
       RATE_CACHE_SECONDS: ${RATE_CACHE_SECONDS:-60}
-      UPLOAD_DIR: ${UPLOAD_DIR:-./uploads}
+      UPLOAD_DIR: /app/uploads
+      # Set to a strong random string in production (openssl rand -base64 32).
+      # Empty value disables the /api/metrics endpoint (returns 503).
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
@@ -62,3 +67,4 @@ services:
 
 volumes:
   pg_data:
+  uploads_data:

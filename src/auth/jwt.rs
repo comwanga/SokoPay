@@ -4,6 +4,7 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
@@ -45,6 +46,11 @@ pub struct Claims {
     pub exp: usize,
     /// Issued at (Unix timestamp)
     pub iat: usize,
+    /// Unique token ID — used to revoke a specific token without invalidating all tokens.
+    /// Tokens issued before this field was added will not have it (jti = None).
+    /// The revocation check is skipped for None to allow graceful rollout.
+    #[serde(default)]
+    pub jti: Option<Uuid>,
 }
 
 pub fn generate_token(
@@ -64,6 +70,7 @@ pub fn generate_token(
         farmer_id,
         exp,
         iat,
+        jti: Some(Uuid::new_v4()),
     };
 
     let token = encode(

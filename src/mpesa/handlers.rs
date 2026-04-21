@@ -68,7 +68,7 @@ pub struct DarajaCallbackBody {
 //
 // Source: Safaricom Developer Portal (last updated 2024).
 // If a future Daraja migration adds new IPs, append them here.
-const SAFARICOM_IP_ALLOWLIST: &[&str] = &[
+pub(crate) const SAFARICOM_IP_ALLOWLIST: &[&str] = &[
     "196.201.214.200",
     "196.201.214.206",
     "196.201.213.114",
@@ -85,7 +85,7 @@ const SAFARICOM_IP_ALLOWLIST: &[&str] = &[
 
 /// Extract the caller's best-effort IP from proxy-forwarded headers.
 /// We use the same trust order as TrustedIpExtractor in routes/mod.rs.
-fn extract_caller_ip(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn extract_caller_ip(headers: &HeaderMap) -> Option<String> {
     // CF-Connecting-IP or X-Real-IP (set by trusted proxies)
     if let Some(ip) = headers
         .get("CF-Connecting-IP")
@@ -107,7 +107,7 @@ fn extract_caller_ip(headers: &HeaderMap) -> Option<String> {
 /// Returns true if `ip` is in the Safaricom allowlist.
 /// When `MPESA_DISABLE_IP_FILTER=true` is set in the environment (for local
 /// development / ngrok tunnels), this check is bypassed with a loud warning.
-fn is_allowed_daraja_ip(ip: &str) -> bool {
+pub(crate) fn is_allowed_daraja_ip(ip: &str) -> bool {
     SAFARICOM_IP_ALLOWLIST.contains(&ip)
 }
 
@@ -172,6 +172,21 @@ pub async fn initiate_stk_push(
         )));
     }
 
+    // Block a second STK Push while one is already waiting for the buyer's PIN.
+    // The unique partial index on mpesa_payments(order_id) WHERE status='pending'
+    // is the hard safety net, but checking here avoids sending a duplicate Daraja
+    // request to the buyer's phone before we even hit the DB.
+    let already_pending: Option<bool> = sqlx::query_scalar(
+        "SELECT true FROM mpesa_payments WHERE order_id = $1 AND status = 'pending'",
+    )
+    .bind(body.order_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if already_pending.is_some() {
+        return Err(AppError::Conflict("payment_already_in_progress".into()));
+    }
+
     // Normalise phone to E.164 (254XXXXXXXXX)
     let phone = normalize_phone(&body.phone).map_err(|e| AppError::BadRequest(e.to_string()))?;
 
@@ -212,7 +227,9 @@ pub async fn initiate_stk_push(
         .stk_push(&phone, amount_u64, &account_ref, description)
         .await?;
 
-    // Persist the pending payment record
+    // Persist the pending payment record.
+    // The unique partial index (order_id WHERE status='pending') is the last
+    // guard against a concurrent request that slipped past the check above.
     let mpesa_payment_id: Uuid = sqlx::query_scalar(
         "INSERT INTO mpesa_payments
             (order_id, merchant_request_id, checkout_request_id, buyer_phone, amount_kes)
@@ -225,7 +242,21 @@ pub async fn initiate_stk_push(
     .bind(&phone)
     .bind(order.total_kes)
     .fetch_one(&state.db)
-    .await?;
+    .await
+    .map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("mpesa_payments_order_pending_unique")
+            || (msg.contains("unique") && msg.contains("mpesa_payments"))
+        {
+            tracing::warn!(
+                order_id = %body.order_id,
+                "Concurrent STK Push blocked by unique index"
+            );
+            AppError::Conflict("payment_already_in_progress".into())
+        } else {
+            AppError::Database(e)
+        }
+    })?;
 
     // Record event for audit trail
     if let Err(e) = events::record_order_event(
@@ -370,7 +401,22 @@ pub async fn mpesa_callback(
         let receipt = meta.and_then(|m| m.receipt_number());
         let phone_used = meta.and_then(|m| m.phone_number());
 
-        // Update mpesa_payments to paid
+        // Both writes must succeed together.
+        // If the process dies between them the buyer is charged but the order
+        // stays pending forever — wrapping them in one transaction prevents that.
+        let mut tx = match state.db.begin().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!(
+                    checkout_request_id = %cb.checkout_request_id,
+                    order_id = %row.order_id,
+                    error = %e,
+                    "mpesa_callback: failed to begin transaction"
+                );
+                return StatusCode::INTERNAL_SERVER_ERROR;
+            }
+        };
+
         let update_result = sqlx::query(
             "UPDATE mpesa_payments
              SET status = 'paid',
@@ -385,32 +431,44 @@ pub async fn mpesa_callback(
         .bind(&phone_used)
         .bind(cb.result_code)
         .bind(&cb.result_desc)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await;
 
         if let Err(e) = update_result {
             tracing::error!(
                 checkout_request_id = %cb.checkout_request_id,
+                order_id = %row.order_id,
                 error = %e,
-                "Failed to update mpesa_payment to paid"
+                "Failed to update mpesa_payment to paid — rolling back"
             );
+            let _ = tx.rollback().await;
             return StatusCode::INTERNAL_SERVER_ERROR;
         }
 
-        // Advance order to paid
         let order_result = sqlx::query(
             "UPDATE orders SET status = 'paid', updated_at = NOW()
              WHERE id = $1 AND status = 'pending_payment'",
         )
         .bind(row.order_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await;
 
         if let Err(e) = order_result {
             tracing::error!(
                 order_id = %row.order_id,
                 error = %e,
-                "Failed to advance order to paid after M-Pesa callback"
+                "Failed to advance order to paid after M-Pesa callback — rolling back"
+            );
+            let _ = tx.rollback().await;
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        }
+
+        if let Err(e) = tx.commit().await {
+            tracing::error!(
+                checkout_request_id = %cb.checkout_request_id,
+                order_id = %row.order_id,
+                error = %e,
+                "mpesa_callback: transaction commit failed"
             );
             return StatusCode::INTERNAL_SERVER_ERROR;
         }

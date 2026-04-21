@@ -124,6 +124,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
         .route("/auth/pubkey", post(auth::pubkey_login))
         .route("/auth/register", post(auth::register))
         .route("/auth/refresh", post(auth::refresh_token))
+        .route("/auth/logout", post(auth::logout))
         .layer(GovernorLayer {
             config: auth_governor_conf,
         });
@@ -353,13 +354,33 @@ async fn health_check(State(state): State<SharedState>) -> (StatusCode, Json<ser
 
 /// GET /api/metrics
 ///
-/// Returns Prometheus text exposition format.  Suitable for scraping with
-/// Prometheus, Grafana Agent, or any compatible collector.
-///
-/// In production, restrict this endpoint to your monitoring network at the
-/// ingress or firewall level — the payload does not contain PII but does
-/// expose operational counters that shouldn't be public.
-async fn metrics_handler(State(state): State<SharedState>) -> impl IntoResponse {
+/// Requires `Authorization: Bearer <METRICS_TOKEN>` where METRICS_TOKEN is set
+/// in the environment.  If the env var is not set, the endpoint returns 503 so
+/// operators notice the misconfiguration rather than silently exposing metrics.
+async fn metrics_handler(
+    State(state): State<SharedState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    // Read the expected token from the environment on every request so it can
+    // be rotated without a restart (the value is not cached in AppState).
+    let expected_token = std::env::var("METRICS_TOKEN").unwrap_or_default();
+
+    if expected_token.is_empty() {
+        tracing::warn!("METRICS_TOKEN is not set — /metrics is returning 503 until it is configured");
+        return (StatusCode::SERVICE_UNAVAILABLE, "METRICS_TOKEN not configured").into_response();
+    }
+
+    let provided = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .unwrap_or("");
+
+    if provided != expected_token {
+        tracing::warn!("Metrics request rejected: bad or missing token");
+        return (StatusCode::UNAUTHORIZED, "unauthorized").into_response();
+    }
+
     match &state.metrics {
         Some(handle) => (
             StatusCode::OK,

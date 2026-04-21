@@ -10,7 +10,7 @@ const EXAMPLE_JWT_SECRETS: &[&str] = &[
     "change-this-in-production-min-32-chars",
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     // Server
     pub host: String,
@@ -75,6 +75,51 @@ pub struct Config {
     pub smtp_pass: Option<String>,
     /// "SokoPay <noreply@sokopay.app>" style From address.
     pub email_from: Option<String>,
+}
+
+// Manual Debug that replaces every secret field with "[REDACTED]".
+// Without this, a stray debug print (dbg!, tracing::debug!("{:?}", config))
+// would dump API keys, passwords, and private keys into logs in plain text.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("database_url", &"[REDACTED]")
+            .field("jwt_secret", &"[REDACTED]")
+            .field("jwt_expiry_hours", &self.jwt_expiry_hours)
+            .field("admin_password_hash", &"[REDACTED]")
+            .field("upload_dir", &self.upload_dir)
+            .field("public_base_url", &self.public_base_url)
+            .field("allowed_origins", &self.allowed_origins)
+            .field("log_format", &self.log_format)
+            .field("btcpay_url", &self.btcpay_url)
+            .field("btcpay_api_key", &self.btcpay_api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("btcpay_store_id", &self.btcpay_store_id)
+            .field("btcpay_webhook_secret", &self.btcpay_webhook_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("nostr_relay_url", &self.nostr_relay_url)
+            .field("nostr_privkey_hex", &self.nostr_privkey_hex.as_ref().map(|_| "[REDACTED]"))
+            .field("mpesa_consumer_key", &self.mpesa_consumer_key.as_ref().map(|_| "[REDACTED]"))
+            .field("mpesa_consumer_secret", &self.mpesa_consumer_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("mpesa_shortcode", &self.mpesa_shortcode)
+            .field("mpesa_passkey", &self.mpesa_passkey.as_ref().map(|_| "[REDACTED]"))
+            .field("mpesa_callback_url", &self.mpesa_callback_url)
+            .field("mpesa_env", &self.mpesa_env)
+            .field("mpesa_b2c_initiator_name", &self.mpesa_b2c_initiator_name)
+            .field("mpesa_b2c_security_credential", &self.mpesa_b2c_security_credential.as_ref().map(|_| "[REDACTED]"))
+            .field("mpesa_b2c_result_url", &self.mpesa_b2c_result_url)
+            .field("mpesa_b2c_timeout_url", &self.mpesa_b2c_timeout_url)
+            .field("platform_commission_rate", &self.platform_commission_rate)
+            .field("africas_talking_api_key", &self.africas_talking_api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("africas_talking_username", &self.africas_talking_username)
+            .field("africas_talking_sender_id", &self.africas_talking_sender_id)
+            .field("smtp_host", &self.smtp_host)
+            .field("smtp_port", &self.smtp_port)
+            .field("smtp_user", &self.smtp_user)
+            .field("smtp_pass", &self.smtp_pass.as_ref().map(|_| "[REDACTED]"))
+            .field("email_from", &self.email_from)
+            .finish()
+    }
 }
 
 impl Config {

@@ -1,6 +1,7 @@
 use super::jwt::{validate_token, Claims};
 use crate::error::AppError;
 use crate::state::SharedState;
+use anyhow::anyhow;
 use axum::{
     async_trait,
     extract::FromRequestParts,
@@ -23,6 +24,27 @@ impl FromRequestParts<SharedState> for Claims {
         })?;
 
         let claims = validate_token(&state.config.jwt_secret, token)?;
+
+        // If the token has a jti, check whether it has been explicitly revoked.
+        // Tokens issued before the jti field was added have jti = None;
+        // we skip the check for those to allow a graceful rollout.
+        if let Some(jti) = claims.jti {
+            let revoked: Option<bool> = sqlx::query_scalar(
+                "SELECT true FROM jwt_revocations WHERE jti = $1",
+            )
+            .bind(jti)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("JWT revocation DB check failed: {}", e);
+                AppError::Internal(anyhow!("Token validation failed"))
+            })?;
+
+            if revoked.is_some() {
+                return Err(AppError::Unauthorized("Token has been revoked".into()));
+            }
+        }
+
         Ok(claims)
     }
 }

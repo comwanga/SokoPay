@@ -410,14 +410,32 @@ pub async fn resolve_dispute(
 
     // Determine final order status based on resolution
     let final_status = match body.resolution.as_str() {
-        "refund_buyer" => "cancelled", // seller ships nothing; buyer notified separately
-        "release_seller" => "confirmed", // seller fulfilled; funds already in seller wallet
-        "split" => "confirmed",        // partial; admin handles externally
+        "refund_buyer" => "cancelled",
+        "release_seller" => "confirmed",
+        "split" => "confirmed",
         _ => unreachable!(),
     };
 
     let now = Utc::now();
-    let admin_id = claims.farmer_id; // may be None for non-farmer admins
+    let admin_id = claims.farmer_id;
+
+    // For refund_buyer: load the buyer's ID and order amount so we can create
+    // the disbursements row inside the same transaction that resolves the dispute.
+    // This ensures we never have a resolved dispute with no refund record.
+    let refund_context: Option<(Uuid, Decimal)> = if body.resolution == "refund_buyer" {
+        sqlx::query_as::<_, (Uuid, Decimal)>(
+            "SELECT buyer_id, total_kes FROM orders WHERE id = $1",
+        )
+        .bind(order_id)
+        .fetch_optional(&state.db)
+        .await?
+    } else {
+        None
+    };
+
+    // Open a transaction that covers the order status change AND the refund
+    // disbursement row creation.  If either write fails, neither is committed.
+    let mut tx = state.db.begin().await?;
 
     sqlx::query(
         "UPDATE orders SET
@@ -431,8 +449,32 @@ pub async fn resolve_dispute(
     .bind(final_status)
     .bind(&body.resolution)
     .bind(now)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+
+    // Insert a disbursements row for buyer refunds so the reconciliation worker
+    // and admin panel can track whether the money actually reached the buyer.
+    // seller_id is set to buyer_id here because the buyer is the payout recipient.
+    let refund_disbursement_id: Option<Uuid> = if let Some((buyer_id, total_kes)) = refund_context
+    {
+        sqlx::query_scalar(
+            "INSERT INTO disbursements
+                 (order_id, seller_id, gross_kes, commission_kes, net_kes,
+                  commission_rate, status, disbursement_type)
+             VALUES ($1, $2, $3, 0, $3, 0, 'pending', 'refund')
+             ON CONFLICT (order_id, disbursement_type) DO NOTHING
+             RETURNING id",
+        )
+        .bind(order_id)
+        .bind(buyer_id)
+        .bind(total_kes)
+        .fetch_optional(&mut *tx)
+        .await?
+    } else {
+        None
+    };
+
+    tx.commit().await?;
 
     if let Err(e) = events::record_order_event(
         &state.db,
@@ -515,8 +557,13 @@ pub async fn resolve_dispute(
         "refund_buyer" => {
             // Try Lightning refund first; falls back to manual if M-Pesa was used.
             tokio::spawn(attempt_lightning_refund(state.clone(), order_id, now));
-            // Also queue an M-Pesa B2C refund for M-Pesa orders.
-            tokio::spawn(attempt_mpesa_refund_to_buyer(state.clone(), order_id));
+            // M-Pesa B2C refund — pass the disbursement_id so the callback and
+            // reconciliation worker can track whether the money reached the buyer.
+            tokio::spawn(attempt_mpesa_refund_to_buyer(
+                state.clone(),
+                order_id,
+                refund_disbursement_id,
+            ));
         }
         "release_seller" => {
             // Seller fulfilled the order — disburse their payment now.
@@ -788,12 +835,14 @@ async fn attempt_lightning_refund(state: SharedState, order_id: Uuid, resolved_a
 
 /// Attempt a direct M-Pesa B2C refund to the buyer's registered phone.
 ///
-/// This runs in parallel with `attempt_lightning_refund`. For M-Pesa orders,
-/// only this path will succeed (the LN path exits early). For LN orders, this
-/// path will exit early because the buyer has no M-Pesa phone in the common case.
-///
-/// Errors are always logged, never propagated — the dispute is already resolved.
-async fn attempt_mpesa_refund_to_buyer(state: SharedState, order_id: Uuid) {
+/// `disbursement_id` is the row inserted by `resolve_dispute` inside the
+/// dispute resolution transaction.  We update it here after the B2C call so
+/// the reconciliation worker can track whether the money reached the buyer.
+async fn attempt_mpesa_refund_to_buyer(
+    state: SharedState,
+    order_id: Uuid,
+    disbursement_id: Option<Uuid>,
+) {
     #[derive(sqlx::FromRow)]
     struct RefundCtx {
         total_kes: Decimal,
@@ -897,6 +946,29 @@ async fn attempt_mpesa_refund_to_buyer(state: SharedState, order_id: Uuid) {
                 buyer_phone     = %phone,
                 "M-Pesa refund B2C initiated"
             );
+            // Record the conversation_id so the B2C result callback can find
+            // this row and the reconciliation worker can detect if it stalls.
+            if let Some(did) = disbursement_id {
+                let _ = sqlx::query(
+                    "UPDATE disbursements
+                     SET status = 'processing',
+                         b2c_conversation_id = $2,
+                         b2c_originator_id   = $3
+                     WHERE id = $1",
+                )
+                .bind(did)
+                .bind(&b2c.conversation_id)
+                .bind(&b2c.originator_conversation_id)
+                .execute(&state.db)
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        disbursement_id = %did,
+                        error = %e,
+                        "M-Pesa refund: failed to update disbursement to processing"
+                    )
+                });
+            }
         }
         Err(e) => {
             tracing::error!(
@@ -904,6 +976,22 @@ async fn attempt_mpesa_refund_to_buyer(state: SharedState, order_id: Uuid) {
                 error      = %e,
                 "M-Pesa refund B2C failed — manual action required"
             );
+            if let Some(did) = disbursement_id {
+                let _ = sqlx::query(
+                    "UPDATE disbursements SET status = 'failed', notes = $2 WHERE id = $1",
+                )
+                .bind(did)
+                .bind(format!("B2C refund initiation failed: {e}"))
+                .execute(&state.db)
+                .await
+                .map_err(|db_err| {
+                    tracing::error!(
+                        disbursement_id = %did,
+                        error = %db_err,
+                        "M-Pesa refund: failed to update disbursement to failed"
+                    )
+                });
+            }
         }
     }
 }

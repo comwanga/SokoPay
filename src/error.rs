@@ -43,6 +43,11 @@ pub enum AppError {
     #[error("Webhook error: {0}")]
     Webhook(String),
 
+    /// Nostr NIP-98 event failed validation (wrong URL, stale timestamp, bad sig).
+    /// Returns 401 with a machine-readable body so clients can show the right message.
+    #[error("Nostr auth rejected: {reason}")]
+    NostrAuth { reason: String },
+
     #[error("Oracle error: {0}")]
     Oracle(String),
 
@@ -87,6 +92,13 @@ impl IntoResponse for AppError {
                 // Log at warn, not error — this is a rejected request, not a server fault.
                 tracing::warn!("Webhook signature rejected: {}", msg);
                 (StatusCode::UNAUTHORIZED, msg.clone())
+            }
+            AppError::NostrAuth { reason } => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({ "error": "invalid_nostr_event", "reason": reason })),
+                )
+                    .into_response();
             }
             AppError::Oracle(msg) => {
                 tracing::error!("Oracle error: {}", msg);

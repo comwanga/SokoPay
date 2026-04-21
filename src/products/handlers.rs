@@ -223,15 +223,10 @@ async fn fetch_product(pool: &sqlx::PgPool, product_id: Uuid) -> AppResult<Produ
                 p.location_name, p.country_code, p.currency_code,
                 p.ships_to, p.is_global,
                 p.created_at, p.updated_at,
-                pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+                p.rating_avg AS avg_rating,
+                COALESCE(p.rating_count, 0) AS rating_count
          FROM products p
          JOIN farmers f ON f.id = p.seller_id
-         LEFT JOIN (
-             SELECT product_id,
-                    AVG(rating)::float8 AS avg_rating,
-                    COUNT(*) AS rating_count
-             FROM product_ratings GROUP BY product_id
-         ) pr ON pr.product_id = p.id
          WHERE p.id = $1 AND p.status != 'deleted'",
     )
     .bind(product_id)
@@ -345,7 +340,7 @@ pub async fn list_products(
         Some("rank") if has_query => {
             "ts_rank(p.search_vector, plainto_tsquery('english', $7)) DESC, p.created_at DESC"
         }
-        Some("rating") => "COALESCE(pr.avg_rating, 0) DESC, p.created_at DESC",
+        Some("rating") => "COALESCE(p.rating_avg, 0) DESC, p.created_at DESC",
         Some("price_asc") => "p.price_kes ASC",
         Some("price_desc") => "p.price_kes DESC",
         // Default: when there's a search query, rank by relevance; otherwise by date.
@@ -401,13 +396,10 @@ pub async fn list_products(
                p.location_name, p.country_code, p.currency_code,
                p.ships_to, p.is_global,
                p.created_at, p.updated_at,
-               pr.avg_rating, COALESCE(pr.rating_count, 0) AS rating_count
+               p.rating_avg AS avg_rating,
+               COALESCE(p.rating_count, 0) AS rating_count
         FROM products p
-        JOIN farmers f ON f.id = p.seller_id
-        LEFT JOIN (
-            SELECT product_id, AVG(rating)::float8 AS avg_rating, COUNT(*) AS rating_count
-            FROM product_ratings GROUP BY product_id
-        ) pr ON pr.product_id = p.id";
+        JOIN farmers f ON f.id = p.seller_id";
 
     // Fetch one extra row to detect whether a next page exists.
     let fetch_limit = per_page + 1;

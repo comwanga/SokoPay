@@ -16,8 +16,9 @@
 use crate::auth::jwt::{Claims, Role};
 use crate::error::{AppError, AppResult};
 use crate::mpesa::client::B2cResult;
+use crate::mpesa::handlers::{extract_caller_ip, is_allowed_daraja_ip};
 use crate::state::SharedState;
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -114,9 +115,9 @@ async fn try_trigger_disbursement(state: &SharedState, order_id: Uuid) -> AppRes
     let disbursement_id: Option<Uuid> = sqlx::query_scalar(
         "INSERT INTO disbursements
              (order_id, seller_id, gross_kes, commission_kes, net_kes,
-              commission_rate, seller_phone, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-         ON CONFLICT (order_id) DO NOTHING
+              commission_rate, seller_phone, status, disbursement_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 'payout')
+         ON CONFLICT (order_id, disbursement_type) DO NOTHING
          RETURNING id",
     )
     .bind(order_id)
@@ -269,10 +270,47 @@ async fn try_trigger_disbursement(state: &SharedState, order_id: Uuid) -> AppRes
 ///
 /// Daraja calls this after a B2C payment completes or fails.
 /// We match by `ConversationID` and update the disbursements table.
+///
+/// Security: same Safaricom IP allowlist as the STK Push callback.
+/// B2C result payloads are unsigned — IP filtering is the only
+/// inbound control Daraja provides for this endpoint.
 pub async fn b2c_result(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(payload): Json<B2cResult>,
 ) -> StatusCode {
+    // ── IP allowlist ──────────────────────────────────────────────────────────
+    let bypass = std::env::var("MPESA_DISABLE_IP_FILTER")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !bypass {
+        match extract_caller_ip(&headers).as_deref() {
+            Some(ip) if is_allowed_daraja_ip(ip) => {
+                tracing::debug!(ip = %ip, "B2C result callback from allowed Safaricom IP");
+            }
+            Some(ip) => {
+                tracing::warn!(
+                    ip = %ip,
+                    endpoint = "b2c_result",
+                    "B2C result callback rejected: IP not in Safaricom allowlist"
+                );
+                return StatusCode::UNAUTHORIZED;
+            }
+            None => {
+                tracing::warn!(
+                    endpoint = "b2c_result",
+                    "B2C result callback rejected: could not determine caller IP"
+                );
+                return StatusCode::UNAUTHORIZED;
+            }
+        }
+    } else {
+        tracing::warn!(
+            "MPESA_DISABLE_IP_FILTER=true — Daraja B2C IP allowlist bypassed (dev mode)"
+        );
+    }
+
     let result = &payload.result;
 
     tracing::info!(
@@ -378,6 +416,7 @@ pub async fn b2c_result(
         .await
         .map_err(|e| tracing::error!(error = %e, "Failed to update disbursement to failed"));
 
+        crate::metrics::record_disbursement_failed();
         tracing::warn!(
             disbursement_id = %disbursement_id,
             result_code     = %result.result_code,
@@ -442,12 +481,47 @@ pub async fn list_disbursements(
 /// POST /api/payments/mpesa/b2c/timeout
 ///
 /// Daraja calls this when a B2C request sits in the queue too long without
-/// processing. We mark it `failed` so the reconciliation worker or an operator
-/// can re-initiate the payout manually.
+/// processing. We mark it `manual_required` so finance can re-initiate via
+/// the Safaricom portal after confirming no funds were transferred.
+///
+/// Security: same Safaricom IP allowlist as the STK Push callback.
 pub async fn b2c_timeout(
     State(state): State<SharedState>,
+    headers: HeaderMap,
     Json(payload): Json<B2cResult>,
 ) -> StatusCode {
+    // ── IP allowlist ──────────────────────────────────────────────────────────
+    let bypass = std::env::var("MPESA_DISABLE_IP_FILTER")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !bypass {
+        match extract_caller_ip(&headers).as_deref() {
+            Some(ip) if is_allowed_daraja_ip(ip) => {
+                tracing::debug!(ip = %ip, "B2C timeout callback from allowed Safaricom IP");
+            }
+            Some(ip) => {
+                tracing::warn!(
+                    ip = %ip,
+                    endpoint = "b2c_timeout",
+                    "B2C timeout callback rejected: IP not in Safaricom allowlist"
+                );
+                return StatusCode::UNAUTHORIZED;
+            }
+            None => {
+                tracing::warn!(
+                    endpoint = "b2c_timeout",
+                    "B2C timeout callback rejected: could not determine caller IP"
+                );
+                return StatusCode::UNAUTHORIZED;
+            }
+        }
+    } else {
+        tracing::warn!(
+            "MPESA_DISABLE_IP_FILTER=true — Daraja B2C IP allowlist bypassed (dev mode)"
+        );
+    }
+
     let result = &payload.result;
 
     tracing::warn!(
@@ -455,10 +529,14 @@ pub async fn b2c_timeout(
         "Daraja B2C timeout — request queued too long"
     );
 
+    // Timeout does NOT mean the transfer failed — Daraja may still deliver
+    // a late result callback. Using 'manual_required' keeps the row visible
+    // to finance and the reconciliation worker without treating it as a
+    // definitive failure. Only set 'failed' after confirming with Safaricom.
     let _ = sqlx::query(
         "UPDATE disbursements
-         SET status = 'failed',
-             notes  = 'Daraja B2C queue timeout — re-initiate manually'
+         SET status = 'manual_required',
+             notes  = 'Daraja B2C queue timeout — verify with Safaricom before re-initiating'
          WHERE b2c_conversation_id = $1 AND status = 'processing'",
     )
     .bind(&result.conversation_id)
@@ -467,4 +545,63 @@ pub async fn b2c_timeout(
     .map_err(|e| tracing::error!(error = %e, "Failed to mark disbursement timed-out"));
 
     StatusCode::OK
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use crate::mpesa::handlers::{extract_caller_ip, is_allowed_daraja_ip, SAFARICOM_IP_ALLOWLIST};
+    use axum::http::HeaderMap;
+
+    /// A random public IP that is NOT in Safaricom's published server range.
+    #[test]
+    fn test_forged_ip_is_rejected() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "CF-Connecting-IP",
+            "1.2.3.4".parse().expect("valid header value"),
+        );
+        let ip = extract_caller_ip(&headers).expect("IP should be extractable");
+        assert!(
+            !is_allowed_daraja_ip(&ip),
+            "1.2.3.4 must not pass the Safaricom allowlist"
+        );
+    }
+
+    /// First entry in SAFARICOM_IP_ALLOWLIST — must be accepted.
+    #[test]
+    fn test_safaricom_ip_is_allowed() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "CF-Connecting-IP",
+            "196.201.214.200".parse().expect("valid header value"),
+        );
+        let ip = extract_caller_ip(&headers).expect("IP should be extractable");
+        assert!(
+            is_allowed_daraja_ip(&ip),
+            "196.201.214.200 must be in the Safaricom allowlist"
+        );
+    }
+
+    /// No IP headers present — extractor must return None so the guard fails closed.
+    #[test]
+    fn test_missing_ip_header_returns_none() {
+        let headers = HeaderMap::new();
+        assert!(
+            extract_caller_ip(&headers).is_none(),
+            "Missing IP headers must return None"
+        );
+    }
+
+    /// Every address in the published Safaricom allowlist should be accepted.
+    #[test]
+    fn test_all_safaricom_ips_allowed() {
+        for &ip in SAFARICOM_IP_ALLOWLIST {
+            assert!(
+                is_allowed_daraja_ip(ip),
+                "{ip} is in SAFARICOM_IP_ALLOWLIST but is_allowed_daraja_ip returned false"
+            );
+        }
+    }
 }

@@ -92,6 +92,7 @@ impl FromRequestParts<SharedState> for ApiKeyClaims {
             farmer_id: Some(row.farmer_id),
             exp,
             iat,
+            jti: None, // API key sessions are not JWT-based; revocation is via key deletion
         };
 
         Ok(ApiKeyClaims(claims))

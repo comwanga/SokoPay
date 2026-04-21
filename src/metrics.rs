@@ -40,7 +40,6 @@ pub fn record_disbursement_paid() {
 }
 
 /// A B2C disbursement failed.
-#[allow(dead_code)]
 pub fn record_disbursement_failed() {
     metrics::counter!("sokopay_disbursements_failed_total").increment(1);
 }

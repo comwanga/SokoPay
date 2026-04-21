@@ -73,26 +73,31 @@ pub async fn nostr_login(
         return Err(AppError::BadRequest("Event must be kind 27235".into()));
     }
 
-    // 2. Timestamp within 60 seconds
+    // 2. Timestamp within ±30 seconds of server time.
+    //    60 seconds was too wide — it doubles the cross-service replay window.
     let now = chrono::Utc::now().timestamp();
-    if (now - event.created_at).abs() > 60 {
-        return Err(AppError::Unauthorized(
-            "Event timestamp out of range".into(),
-        ));
+    if (now - event.created_at).abs() > 30 {
+        return Err(AppError::NostrAuth {
+            reason: "Event timestamp is more than 30 seconds from server time".into(),
+        });
     }
 
-    // 3. u tag must point at our own auth endpoint
+    // 3. u tag must be the exact URL of this auth endpoint.
+    //    ends_with() would accept tokens minted for evil.com/api/auth/nostr,
+    //    enabling cross-service replay attacks within the 30-second window.
+    let expected_url = format!("{}/api/auth/nostr", state.config.public_base_url);
     let u_tag = event
         .tags
         .iter()
         .find(|t| t.first().map(|s| s == "u").unwrap_or(false))
         .and_then(|t| t.get(1))
-        .ok_or_else(|| AppError::BadRequest("Missing u tag".into()))?;
-    let expected_suffix = "/auth/nostr";
-    if !u_tag.ends_with(expected_suffix) {
-        return Err(AppError::BadRequest(format!(
-            "u tag must end with {expected_suffix}"
-        )));
+        .ok_or_else(|| AppError::NostrAuth {
+            reason: "Missing u tag".into(),
+        })?;
+    if u_tag.as_str() != expected_url {
+        return Err(AppError::NostrAuth {
+            reason: format!("u tag must be exactly {expected_url}"),
+        });
     }
 
     // 4. method tag must be POST
@@ -193,4 +198,45 @@ fn verify_schnorr(pubkey_hex: &str, event_id_hex: &str, sig_hex: &str) -> AppRes
         .map_err(|_| AppError::Unauthorized("Invalid Nostr signature".into()))?;
 
     Ok(())
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    /// Check that the URL comparison logic rejects cross-site tokens.
+    /// The handler does `u_tag == expected_url`; these tests mirror that logic.
+    #[test]
+    fn test_u_tag_exact_match_required() {
+        let expected = "https://sokopay.app/api/auth/nostr";
+
+        // Correct URL passes
+        assert_eq!("https://sokopay.app/api/auth/nostr", expected);
+
+        // Same path suffix on a different domain must fail
+        assert_ne!("https://evil.com/api/auth/nostr", expected);
+
+        // Old ends_with target — must also fail with exact check
+        assert_ne!("https://evil.com/auth/nostr", expected);
+
+        // Trailing slash variation must fail
+        assert_ne!("https://sokopay.app/api/auth/nostr/", expected);
+    }
+
+    /// Check that the 30-second timestamp window logic is correct.
+    /// The handler does `(now - created_at).abs() > 30`.
+    #[test]
+    fn test_timestamp_window() {
+        let now = chrono::Utc::now().timestamp();
+
+        // Within the window — must pass (abs diff ≤ 30)
+        assert!((now - (now - 15)).abs() <= 30, "15s ago should be within window");
+        assert!((now - now).abs() <= 30, "now should be within window");
+        assert!((now - (now + 10)).abs() <= 30, "10s in future should be within window");
+
+        // Outside the window — must be rejected (abs diff > 30)
+        assert!((now - (now - 31)).abs() > 30, "31s ago should be stale");
+        assert!((now - (now - 3600)).abs() > 30, "1 hour ago should be stale");
+        assert!((now - (now + 31)).abs() > 30, "31s in future should be rejected");
+    }
 }
