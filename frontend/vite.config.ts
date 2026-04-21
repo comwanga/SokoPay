@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
-  base: '/sokopay/',
+  // In production builds (GitHub Pages), assets live under /sokopay/.
+  // During local dev the server runs at root so the sub-path is not needed.
+  base: command === 'build' ? '/sokopay/' : '/',
   server: {
     port: 5173,
     proxy: {
@@ -27,4 +29,4 @@ export default defineConfig({
       },
     },
   }
-})
+}))
