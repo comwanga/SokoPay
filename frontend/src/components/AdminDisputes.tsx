@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Shield, ChevronDown, ChevronUp, FileText, Check,
-  AlertTriangle, UserCheck, Users, RefreshCw, AlertCircle,
+  AlertTriangle, UserCheck, Users, RefreshCw, AlertCircle, BarChart2,
 } from 'lucide-react'
 import {
   listAdminDisputes, listStuckRefunds, getDisputeEvidence, resolveDispute,
   createUser, formatKes,
 } from '../api/client.ts'
+import AdminStats from './AdminStats.tsx'
 import type { OpenDisputeRow, ResolveDisputePayload, CreateUserRequest, StuckRefund } from '../types'
 
 // ── Single dispute row ────────────────────────────────────────────────────────
@@ -343,7 +344,7 @@ function StuckRefundRow({ r }: { r: StuckRefund }) {
 // ── Admin page ────────────────────────────────────────────────────────────────
 
 export default function AdminDisputes() {
-  const [tab, setTab] = useState<'disputes' | 'refunds' | 'users'>('disputes')
+  const [tab, setTab] = useState<'dashboard' | 'disputes' | 'refunds' | 'users'>('dashboard')
 
   const { data: disputes = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-disputes'],
@@ -366,13 +367,23 @@ export default function AdminDisputes() {
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-800/60 rounded-xl p-1 w-fit flex-wrap">
         <button
+          onClick={() => setTab('dashboard')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
+            tab === 'dashboard' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <BarChart2 className="w-3.5 h-3.5" />
+          Dashboard
+        </button>
+        <button
           onClick={() => setTab('disputes')}
           className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-colors ${
             tab === 'disputes' ? 'bg-gray-700 text-gray-100' : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           <AlertTriangle className="w-3.5 h-3.5" />
-          Open Disputes
+          Disputes
+          {disputes.length > 0 && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-yellow-500/20 text-yellow-400 text-[10px] font-bold">{disputes.length}</span>}
         </button>
         <button
           onClick={() => setTab('refunds')}
@@ -393,6 +404,9 @@ export default function AdminDisputes() {
           User Accounts
         </button>
       </div>
+
+      {/* Dashboard tab */}
+      {tab === 'dashboard' && <AdminStats />}
 
       {/* Disputes tab */}
       {tab === 'disputes' && (

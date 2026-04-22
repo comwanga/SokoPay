@@ -802,3 +802,41 @@ export interface CategoryPriceStats {
 export async function getPriceIndex(): Promise<CategoryPriceStats[]> {
   return request<CategoryPriceStats[]>('/price-index')
 }
+
+// ─── Admin Stats ──────────────────────────────────────────────────────────────
+
+export interface MonthlyGmv {
+  month: string
+  revenue_kes: string
+  order_count: number
+}
+
+export interface CountryStat {
+  country: string
+  order_count: number
+  revenue_kes: string
+}
+
+export interface PlatformStats {
+  total_orders: number
+  completed_orders: number
+  pending_orders: number
+  disputed_orders: number
+  cancelled_orders: number
+  total_sellers: number
+  active_listings: number
+  gmv_kes: string
+  gmv_sats: number
+  settled_count: number
+  expired_count: number
+  lightning_count: number
+  mpesa_count: number
+  dispute_rate_pct: number
+  payment_success_pct: number
+  monthly_gmv: MonthlyGmv[]
+  top_countries: CountryStat[]
+}
+
+export async function getAdminStats(): Promise<PlatformStats> {
+  return request<PlatformStats>('/admin/stats')
+}

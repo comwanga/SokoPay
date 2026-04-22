@@ -7,6 +7,8 @@ import {
   uploadProductImage, deleteProductImage,
 } from '../api/client.ts'
 import { PRODUCT_CATEGORIES, PRODUCT_UNITS, CATEGORY_ICONS } from '../types'
+import SmartDescriptionGenerator from './SmartDescriptionGenerator.tsx'
+import AIPriceSuggestion from './AIPriceSuggestion.tsx'
 import clsx from 'clsx'
 
 const COUNTRIES = [
@@ -216,7 +218,7 @@ export default function ProductForm() {
           </div>
 
           {/* Description */}
-          <div className="space-y-1">
+          <div className="space-y-2">
             <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Description</label>
             <textarea
               value={description}
@@ -225,6 +227,13 @@ export default function ProductForm() {
               rows={3}
               maxLength={2000}
               className="input-base resize-none"
+            />
+            <SmartDescriptionGenerator
+              title={title}
+              category={category}
+              priceKes={priceKes}
+              unit={unit}
+              onApply={setDescription}
             />
           </div>
 
@@ -267,6 +276,16 @@ export default function ProductForm() {
               />
             </div>
           </div>
+
+          {/* AI price suggestion */}
+          {category && (
+            <AIPriceSuggestion
+              category={category}
+              currentPrice={priceKes}
+              unit={unit}
+              onApply={setPriceKes}
+            />
+          )}
 
           {/* Low-stock threshold */}
           <div className="space-y-1">

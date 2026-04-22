@@ -258,6 +258,7 @@ pub fn router(_state: SharedState) -> Router<SharedState> {
             patch(dispute_handlers::resolve_dispute),
         )
         .route("/admin/refunds", get(dispute_handlers::list_stuck_refunds))
+        .route("/admin/stats", get(dispute_handlers::platform_stats))
         .route(
             "/admin/disbursements",
             get(crate::mpesa::b2c::list_disbursements),

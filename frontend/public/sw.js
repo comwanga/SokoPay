@@ -4,7 +4,7 @@
 //  - /api/*  → always network (payments must never serve stale data)
 //  - everything else → cache-first with network fallback, cache updates on miss
 
-const CACHE_NAME = 'sokopay-v1'
+const CACHE_NAME = 'sokopay-v4'
 
 // Pre-cache the shell on install so the app loads offline.
 self.addEventListener('install', (event) => {

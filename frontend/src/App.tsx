@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { LogIn } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/auth.tsx'
 import Layout from './components/Layout.tsx'
@@ -17,6 +17,8 @@ import PriceIndex from './components/PriceIndex.tsx'
 import CategoryPage from './components/CategoryPage.tsx'
 import CartPage from './components/CartPage.tsx'
 import DeveloperSettings from './components/DeveloperSettings.tsx'
+import WishlistPage from './components/WishlistPage.tsx'
+import FollowingPage from './components/FollowingPage.tsx'
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { authed, isAdmin } = useAuth()
@@ -54,8 +56,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
+  const location = useLocation()
   return (
     <Layout>
+      <div key={location.pathname} className="page-enter">
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/browse" element={<Marketplace />} />
@@ -73,8 +77,11 @@ function AppRoutes() {
         <Route path="/admin" element={<RequireAdmin><AdminDisputes /></RequireAdmin>} />
         <Route path="/sellers/:id" element={<SellerStorefront />} />
         <Route path="/price-index" element={<PriceIndex />} />
+        <Route path="/wishlist" element={<WishlistPage />} />
+        <Route path="/following" element={<FollowingPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </div>
     </Layout>
   )
 }

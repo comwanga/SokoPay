@@ -1,12 +1,15 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ShoppingCart, Trash2, Plus, Minus, ArrowLeft,
   Package, Zap, Smartphone, ShieldCheck, ShoppingBag,
-  MapPin, Loader2, CheckCircle2, AlertCircle,
+  MapPin, Loader2, CheckCircle2, AlertCircle, Tag, X,
 } from 'lucide-react'
 import { formatKes } from '../api/client.ts'
 import { useCart } from '../context/cart.tsx'
 import { useCheckout } from '../hooks/useCheckout.ts'
+import { validatePromoCode, applyDiscount } from '../hooks/usePromoCode.ts'
+import type { PromoCode } from '../hooks/usePromoCode.ts'
 import clsx from 'clsx'
 
 export default function CartPage() {
@@ -17,6 +20,24 @@ export default function CartPage() {
     results, checking, allDone, inFlight, hasErrors,
     handleGps, handleCheckout,
   } = useCheckout()
+
+  const [promoInput, setPromoInput] = useState('')
+  const [appliedPromo, setAppliedPromo] = useState<PromoCode | null>(null)
+  const [promoError, setPromoError] = useState<string | null>(null)
+
+  function handleApplyPromo() {
+    const result = validatePromoCode(promoInput)
+    if (result.valid && result.promo) {
+      setAppliedPromo(result.promo)
+      setPromoError(null)
+    } else {
+      setPromoError('Invalid or expired promo code')
+    }
+  }
+
+  const { discounted, saving } = appliedPromo
+    ? applyDiscount(totalKes, appliedPromo)
+    : { discounted: totalKes, saving: 0 }
 
   const itemCount = items.reduce((s, i) => s + i.quantity, 0)
 
@@ -176,6 +197,15 @@ export default function CartPage() {
                 <span>Items ({itemCount})</span>
                 <span>KES {totalKes.toLocaleString('en-KE', { maximumFractionDigits: 2 })}</span>
               </div>
+              {saving > 0 && (
+                <div className="flex justify-between text-green-400">
+                  <span className="flex items-center gap-1">
+                    <Tag className="w-3 h-3" />
+                    {appliedPromo!.code} ({appliedPromo!.type === 'percent' ? `${appliedPromo!.value}% off` : `KES ${appliedPromo!.value} off`})
+                  </span>
+                  <span>- KES {saving.toLocaleString('en-KE', { maximumFractionDigits: 2 })}</span>
+                </div>
+              )}
               <div className="flex justify-between text-gray-400">
                 <span>Delivery</span>
                 <span className="text-green-400">Negotiated with seller</span>
@@ -183,9 +213,66 @@ export default function CartPage() {
               <div className="h-px bg-gray-800" />
               <div className="flex justify-between font-bold text-gray-100 text-base">
                 <span>Total</span>
-                <span>KES {totalKes.toLocaleString('en-KE', { maximumFractionDigits: 2 })}</span>
+                <div className="text-right">
+                  {saving > 0 && (
+                    <p className="text-xs text-gray-500 line-through font-normal">
+                      KES {totalKes.toLocaleString('en-KE', { maximumFractionDigits: 2 })}
+                    </p>
+                  )}
+                  <span className={saving > 0 ? 'text-green-400' : ''}>
+                    KES {discounted.toLocaleString('en-KE', { maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Promo code */}
+            {!inFlight && (
+              <div className="space-y-2">
+                {appliedPromo ? (
+                  <div className="flex items-center justify-between bg-green-900/20 border border-green-700/30 rounded-xl px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <Tag className="w-3.5 h-3.5 text-green-400" />
+                      <div>
+                        <p className="text-xs font-bold text-green-300">{appliedPromo.code}</p>
+                        {appliedPromo.description && <p className="text-[10px] text-green-500">{appliedPromo.description}</p>}
+                      </div>
+                    </div>
+                    <button onClick={() => { setAppliedPromo(null); setPromoInput('') }} className="text-green-600 hover:text-green-300 transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={promoInput}
+                          onChange={e => { setPromoInput(e.target.value.toUpperCase()); setPromoError(null) }}
+                          placeholder="Promo code"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-brand-500 outline-none font-mono uppercase"
+                          maxLength={12}
+                        />
+                      </div>
+                      <button
+                        onClick={handleApplyPromo}
+                        disabled={!promoInput.trim()}
+                        className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-200 text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {promoError && (
+                      <p className="text-xs text-red-400 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> {promoError}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {!inFlight && (
               <div className="space-y-1.5">

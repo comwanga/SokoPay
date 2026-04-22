@@ -1110,3 +1110,174 @@ pub async fn list_stuck_refunds(
 
     Ok(Json(stuck))
 }
+
+// ── Admin platform stats ──────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct PlatformStats {
+    pub total_orders: i64,
+    pub completed_orders: i64,
+    pub pending_orders: i64,
+    pub disputed_orders: i64,
+    pub cancelled_orders: i64,
+    pub total_sellers: i64,
+    pub active_listings: i64,
+    pub gmv_kes: Decimal,
+    pub gmv_sats: i64,
+    pub settled_count: i64,
+    pub expired_count: i64,
+    pub lightning_count: i64,
+    pub mpesa_count: i64,
+    pub dispute_rate_pct: f64,
+    pub payment_success_pct: f64,
+    pub monthly_gmv: Vec<MonthlyGmv>,
+    pub top_countries: Vec<CountryStat>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct MonthlyGmv {
+    pub month: String,
+    pub revenue_kes: Decimal,
+    pub order_count: i64,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct CountryStat {
+    pub country: String,
+    pub order_count: i64,
+    pub revenue_kes: Decimal,
+}
+
+/// GET /api/admin/stats
+///
+/// Returns platform-wide metrics for the admin intelligence dashboard.
+/// Requires admin or operator role.
+pub async fn platform_stats(
+    State(state): State<SharedState>,
+    claims: Claims,
+) -> AppResult<Json<PlatformStats>> {
+    if !matches!(claims.role, Role::Admin | Role::Operator) {
+        return Err(AppError::Forbidden("Admin access required".into()));
+    }
+
+    // ── Aggregate order counts ────────────────────────────────────────────────
+    #[derive(FromRow)]
+    struct OrderCounts {
+        total: i64,
+        completed: i64,
+        pending: i64,
+        disputed: i64,
+        cancelled: i64,
+    }
+    let oc: OrderCounts = sqlx::query_as(
+        "SELECT
+            COUNT(*)                                                       AS total,
+            COUNT(*) FILTER (WHERE status = 'confirmed')                  AS completed,
+            COUNT(*) FILTER (WHERE status = 'pending_payment')            AS pending,
+            COUNT(*) FILTER (WHERE status = 'disputed')                   AS disputed,
+            COUNT(*) FILTER (WHERE status = 'cancelled')                  AS cancelled
+         FROM orders",
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    // ── Payment stats ─────────────────────────────────────────────────────────
+    #[derive(FromRow)]
+    struct PayStats {
+        gmv_kes: Option<Decimal>,
+        gmv_sats: Option<i64>,
+        settled: i64,
+        expired: i64,
+        lightning: i64,
+        mpesa: i64,
+    }
+    let ps: PayStats = sqlx::query_as(
+        "SELECT
+            SUM(amount_kes)  FILTER (WHERE status = 'settled')                      AS gmv_kes,
+            SUM(amount_sats) FILTER (WHERE status = 'settled')                      AS gmv_sats,
+            COUNT(*)         FILTER (WHERE status = 'settled')                      AS settled,
+            COUNT(*)         FILTER (WHERE status = 'expired')                      AS expired,
+            COUNT(*)         FILTER (WHERE status = 'settled' AND payment_method = 'lightning') AS lightning,
+            COUNT(*)         FILTER (WHERE status = 'settled' AND payment_method = 'mpesa')     AS mpesa
+         FROM payments",
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    // ── Seller / listing counts ───────────────────────────────────────────────
+    #[derive(FromRow)]
+    struct PlatformCounts {
+        sellers: i64,
+        listings: i64,
+    }
+    let pc: PlatformCounts = sqlx::query_as(
+        "SELECT
+            (SELECT COUNT(*) FROM farmers) AS sellers,
+            (SELECT COUNT(*) FROM products WHERE status = 'active') AS listings",
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    // ── Monthly GMV (last 6 months) ───────────────────────────────────────────
+    let monthly_rows: Vec<MonthlyGmv> = sqlx::query_as(
+        "SELECT
+             TO_CHAR(DATE_TRUNC('month', settled_at), 'YYYY-MM') AS month,
+             COALESCE(SUM(amount_kes), 0)                        AS revenue_kes,
+             COUNT(*)                                             AS order_count
+         FROM payments
+         WHERE status = 'settled'
+           AND settled_at IS NOT NULL
+           AND settled_at >= NOW() - INTERVAL '6 months'
+         GROUP BY 1
+         ORDER BY 1 DESC",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    // ── Top countries by order volume ─────────────────────────────────────────
+    let country_rows: Vec<CountryStat> = sqlx::query_as(
+        "SELECT
+             COALESCE(NULLIF(SPLIT_PART(o.buyer_location_name, ',', -1), ''), 'Unknown') AS country,
+             COUNT(*)                AS order_count,
+             COALESCE(SUM(o.total_kes), 0)  AS revenue_kes
+         FROM orders o
+         WHERE o.status IN ('confirmed', 'paid', 'processing', 'in_transit', 'delivered')
+         GROUP BY 1
+         ORDER BY 2 DESC
+         LIMIT 12",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let total_pay = ps.settled + ps.expired;
+    let dispute_rate = if oc.total > 0 {
+        (oc.disputed as f64 / oc.total as f64) * 100.0
+    } else {
+        0.0
+    };
+    let pay_success = if total_pay > 0 {
+        (ps.settled as f64 / total_pay as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(Json(PlatformStats {
+        total_orders: oc.total,
+        completed_orders: oc.completed,
+        pending_orders: oc.pending,
+        disputed_orders: oc.disputed,
+        cancelled_orders: oc.cancelled,
+        total_sellers: pc.sellers,
+        active_listings: pc.listings,
+        gmv_kes: ps.gmv_kes.unwrap_or_default(),
+        gmv_sats: ps.gmv_sats.unwrap_or(0),
+        settled_count: ps.settled,
+        expired_count: ps.expired,
+        lightning_count: ps.lightning,
+        mpesa_count: ps.mpesa,
+        dispute_rate_pct: dispute_rate,
+        payment_success_pct: pay_success,
+        monthly_gmv: monthly_rows,
+        top_countries: country_rows,
+    }))
+}

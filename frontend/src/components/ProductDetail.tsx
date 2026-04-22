@@ -1,21 +1,28 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, MapPin, Package, Truck, Zap,
   CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Check,
   Smartphone, Loader2, ShoppingCart, BadgeCheck, ShieldCheck,
+  Heart, TrendingUp, ChevronRight as ChevronRightIcon, Share2,
 } from 'lucide-react'
 import {
   getProduct, getOrder, createOrder, createInvoice, confirmPayment,
   updateOrderStatus, payWithWebLN, hasWebLN, formatKes,
-  rateProduct, initiateMpesaPay, getMpesaPaymentStatus,
+  rateProduct, initiateMpesaPay, getMpesaPaymentStatus, listProducts,
 } from '../api/client.ts'
 import { useAuth } from '../context/auth.tsx'
 import { useCart } from '../context/cart.tsx'
+import { useWishlist } from '../context/wishlist.tsx'
+import { useToast } from '../context/toast.tsx'
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed.ts'
 import LightningInvoiceCard from './LightningInvoiceCard.tsx'
 import StarRating from './StarRating.tsx'
+import ProductCard from './ProductCard.tsx'
+import ShareProductModal from './ShareProductModal.tsx'
+import ReceiptDownloadButton from './PaymentReceipt.tsx'
+import { usePaymentPreference } from '../hooks/usePaymentPreference.ts'
 import clsx from 'clsx'
 
 type BuyStep = 'details' | 'location' | 'method' | 'invoice' | 'paying' | 'mpesa-pending' | 'done'
@@ -31,7 +38,9 @@ export default function ProductDetail() {
 
   const [imgIdx, setImgIdx] = useState(0)
   const [buyStep, setBuyStep] = useState<BuyStep | null>(null)
-  const [payMethod, setPayMethod] = useState<PayMethod>('lightning')
+  const [payMethod, setPayMethod] = useState<PayMethod>(() =>
+    localStorage.getItem('sokopay_pay_method') === 'mpesa' ? 'mpesa' : 'lightning',
+  )
 
   // Buy form state
   const [quantity, setQuantity] = useState('1')
@@ -64,12 +73,24 @@ export default function ProductDetail() {
   const [ratingSubmitted, setRatingSubmitted] = useState(false)
   const [ratingError, setRatingError] = useState<string | null>(null)
 
-  const { push: pushRecent } = useRecentlyViewed()
+  const { push: pushRecent }  = useRecentlyViewed()
+  const { has: wishlisted, toggle: toggleWishlist } = useWishlist()
+  const { toast }             = useToast()
+  const { save: saveMethod } = usePaymentPreference()
+  const [showShare, setShowShare] = useState(false)
 
   const { data: product, isLoading, isError } = useQuery({
     queryKey: ['product', id],
     queryFn: () => getProduct(id!),
     enabled: !!id,
+  })
+
+  const { data: similarProducts } = useQuery({
+    queryKey: ['similar', product?.category, id],
+    queryFn: () => listProducts({ category: product!.category, sort: 'rating', in_stock: true, per_page: 8 }),
+    enabled: !!product?.category,
+    staleTime: 120_000,
+    select: data => data.filter(p => p.id !== id).slice(0, 6),
   })
 
   useEffect(() => {
@@ -331,6 +352,8 @@ export default function ProductDetail() {
               <img
                 src={images[imgIdx]?.url}
                 alt={product.title}
+                loading="eager"
+                decoding="async"
                 className="w-full h-full object-cover"
               />
             ) : (
@@ -368,7 +391,7 @@ export default function ProductDetail() {
                     i === imgIdx ? 'border-brand-500' : 'border-transparent',
                   )}
                 >
-                  <img src={img.url} alt="" className="w-full h-full object-cover" />
+                  <img src={img.url} alt="" loading="lazy" className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
@@ -383,7 +406,33 @@ export default function ProductDetail() {
             </span>
           )}
 
-          <h1 className="text-xl font-bold text-gray-100">{product.title}</h1>
+          <div className="flex items-start justify-between gap-2">
+            <h1 className="text-xl font-bold text-gray-100 flex-1">{product.title}</h1>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setShowShare(true)}
+                aria-label="Share product"
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all border bg-gray-800 border-gray-700 text-gray-500 hover:text-brand-400 hover:border-brand-500/30"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  const added = toggleWishlist(product.id)
+                  toast(added ? 'Saved to wishlist' : 'Removed from wishlist', added ? 'success' : 'info', 2500)
+                }}
+                aria-label={wishlisted(product.id) ? 'Remove from wishlist' : 'Save to wishlist'}
+                className={clsx(
+                  'w-9 h-9 rounded-xl flex items-center justify-center transition-all border',
+                  wishlisted(product.id)
+                    ? 'bg-red-500/20 border-red-500/30 text-red-400'
+                    : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-500/30',
+                )}
+              >
+                <Heart className={clsx('w-4 h-4', wishlisted(product.id) && 'fill-current')} />
+              </button>
+            </div>
+          </div>
 
           {(product.rating_count ?? 0) > 0 && (
             <div className="flex items-center gap-2">
@@ -398,6 +447,11 @@ export default function ProductDetail() {
             <span className="text-2xl font-bold text-brand-400">{formatKes(product.price_kes)}</span>
             <span className="text-sm text-gray-500">/{product.unit}</span>
           </div>
+
+          {/* Price position relative to similar products */}
+          {similarProducts && similarProducts.length > 1 && (
+            <PricePosition price={parseFloat(product.price_kes)} peers={similarProducts.map(p => parseFloat(p.price_kes))} />
+          )}
 
           <div className="space-y-1 text-sm text-gray-400">
             <p className="flex items-center gap-1.5 flex-wrap">
@@ -567,7 +621,7 @@ export default function ProductDetail() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setPayMethod('lightning')}
+                  onClick={() => { setPayMethod('lightning'); saveMethod('lightning') }}
                   className={clsx(
                     'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors',
                     payMethod === 'lightning'
@@ -581,7 +635,7 @@ export default function ProductDetail() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPayMethod('mpesa')}
+                  onClick={() => { setPayMethod('mpesa'); saveMethod('mpesa') }}
                   className={clsx(
                     'flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-colors',
                     payMethod === 'mpesa'
@@ -679,13 +733,32 @@ export default function ProductDetail() {
             <div className="card p-4 space-y-4">
               {(mpesaStatus === 'pending') ? (
                 <>
-                  <div className="text-center space-y-3 py-2">
-                    <Loader2 className="w-10 h-10 text-mpesa animate-spin mx-auto" />
-                    <p className="font-semibold text-gray-100">Check your phone</p>
-                    <p className="text-sm text-gray-400">
-                      {mpesaMessage || 'An M-Pesa STK Push prompt has been sent to your phone. Enter your PIN to complete the payment.'}
-                    </p>
-                    <p className="text-xs text-gray-600">Waiting for confirmation…</p>
+                  <div className="text-center space-y-4 py-2">
+                    {/* Pulsing phone icon */}
+                    <div className="relative w-20 h-20 mx-auto">
+                      <div className="absolute inset-0 rounded-full bg-mpesa/20 animate-ping" />
+                      <div className="absolute inset-2 rounded-full bg-mpesa/30 animate-ping animation-delay-150" />
+                      <div className="relative w-20 h-20 rounded-full bg-mpesa/10 border-2 border-mpesa/40 flex items-center justify-center">
+                        <Smartphone className="w-9 h-9 text-mpesa" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-gray-100 text-base">Check your phone</p>
+                      <p className="text-sm text-gray-400 mt-1 leading-relaxed max-w-xs mx-auto">
+                        {mpesaMessage || 'An M-Pesa STK Push has been sent. Open the prompt and enter your PIN.'}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 text-xs text-gray-600">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Waiting for confirmation…
+                    </div>
+                    <div className="bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-left space-y-1">
+                      <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider">Paying</p>
+                      <p className="text-sm font-bold text-gray-100">{product.title}</p>
+                      <p className="text-brand-400 font-semibold">
+                        KES {(parseFloat(quantity || '0') * parseFloat(product.price_kes)).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
                   </div>
                   <button onClick={resetBuy} className="btn-secondary w-full justify-center text-sm">
                     Cancel
@@ -770,14 +843,26 @@ export default function ProductDetail() {
                 <p className="text-sm text-gray-400">
                   Payment sent to the seller. Track your delivery below.
                 </p>
-                <div className="flex gap-2 justify-center">
-                  <button
-                    onClick={() => navigate('/orders')}
-                    className="btn-primary"
-                  >
+                <div className="flex gap-2 justify-center flex-wrap">
+                  <button onClick={() => navigate('/orders')} className="btn-primary">
                     <Truck className="w-4 h-4" />
                     Track Order
                   </button>
+                  {orderId && (
+                    <ReceiptDownloadButton data={{
+                      orderId,
+                      productTitle: product.title,
+                      sellerName: product.seller_name,
+                      quantity,
+                      unit: product.unit,
+                      priceKes: product.price_kes,
+                      totalKes: String(parseFloat(quantity || '0') * parseFloat(product.price_kes)),
+                      paymentMethod: payMethod,
+                      mpesaReceipt: mpesaReceipt,
+                      amountSats: invoice?.amount_sats,
+                      settledAt: new Date().toISOString(),
+                    }} />
+                  )}
                 </div>
                 <p className="text-xs text-gray-600">
                   Once marked delivered, you can confirm receipt or raise a dispute from My Orders.
@@ -823,6 +908,100 @@ export default function ProductDetail() {
           )}
         </div>
       </div>
+
+      {/* Similar Products */}
+      {similarProducts && similarProducts.length > 0 && (
+        <SimilarProductsRow
+          products={similarProducts}
+          category={product.category}
+        />
+      )}
+
+      {showShare && (
+        <ShareProductModal product={product} onClose={() => setShowShare(false)} />
+      )}
     </div>
+  )
+}
+
+// ── Price Position indicator ───────────────────────────────────────────────────
+function PricePosition({ price, peers }: { price: number; peers: number[] }) {
+  const all = [...peers, price].sort((a, b) => a - b)
+  const min = all[0]
+  const max = all[all.length - 1]
+  const range = max - min
+  const pct = range === 0 ? 50 : Math.round(((price - min) / range) * 100)
+
+  const label =
+    pct <= 25 ? 'Below average — great value' :
+    pct <= 55 ? 'Near average price' :
+    pct <= 80 ? 'Above average price' :
+                'Premium priced'
+
+  const color =
+    pct <= 25 ? 'text-green-400' :
+    pct <= 55 ? 'text-brand-400' :
+    pct <= 80 ? 'text-yellow-400' :
+                'text-red-400'
+
+  const barColor =
+    pct <= 25 ? 'bg-green-400' :
+    pct <= 55 ? 'bg-brand-400' :
+    pct <= 80 ? 'bg-yellow-400' :
+                'bg-red-400'
+
+  return (
+    <div className="space-y-1.5 p-3 bg-gray-800/50 border border-gray-700/50 rounded-xl">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-xs text-gray-400">
+          <TrendingUp className="w-3.5 h-3.5" />
+          Price vs similar listings
+        </span>
+        <span className={clsx('text-[11px] font-semibold', color)}>{label}</span>
+      </div>
+      <div className="relative h-1.5 bg-gray-700 rounded-full overflow-hidden">
+        <div
+          className={clsx('absolute inset-y-0 left-0 rounded-full', barColor)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-gray-600">
+        <span>{formatKes(String(Math.min(...peers)))}</span>
+        <span>{formatKes(String(Math.max(...peers)))}</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Similar Products horizontal row ───────────────────────────────────────────
+import type { Product } from '../types'
+
+function SimilarProductsRow({ products, category }: { products: Product[]; category: string }) {
+  const navigate = useNavigate()
+  const rowRef   = useRef<HTMLDivElement>(null)
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-bold text-gray-100">Similar in {category}</h2>
+        <button
+          onClick={() => navigate(`/category/${encodeURIComponent(category)}`)}
+          className="flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 font-medium"
+        >
+          See all <ChevronRightIcon className="w-3 h-3" />
+        </button>
+      </div>
+      <div
+        ref={rowRef}
+        className="flex gap-3 overflow-x-auto scrollbar-none pb-1 -mx-6 px-6"
+        style={{ scrollSnapType: 'x mandatory' }}
+      >
+        {products.map(p => (
+          <div key={p.id} className="shrink-0 w-44 sm:w-48" style={{ scrollSnapAlign: 'start' }}>
+            <ProductCard product={p} />
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }

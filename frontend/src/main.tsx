@@ -6,6 +6,8 @@ import App from './App.tsx'
 import { DisplaySettingsProvider } from './context/displaySettings.tsx'
 import { I18nProvider } from './i18n/index.tsx'
 import { CartProvider } from './context/cart.tsx'
+import { ToastProvider } from './context/toast.tsx'
+import { WishlistProvider } from './context/wishlist.tsx'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -30,13 +32,17 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <DisplaySettingsProvider>
       <I18nProvider>
-        <CartProvider>
-          <QueryClientProvider client={queryClient}>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </QueryClientProvider>
-        </CartProvider>
+        <ToastProvider>
+          <WishlistProvider>
+          <CartProvider>
+            <QueryClientProvider client={queryClient}>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </QueryClientProvider>
+          </CartProvider>
+          </WishlistProvider>
+        </ToastProvider>
       </I18nProvider>
     </DisplaySettingsProvider>
   </React.StrictMode>,

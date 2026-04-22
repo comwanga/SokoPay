@@ -5,6 +5,9 @@ import {
 } from 'lucide-react'
 import { getStorefront, formatKes } from '../api/client.ts'
 import type { StorefrontProduct } from '../api/client.ts'
+import SellerTierBadge from './SellerTierBadge.tsx'
+import LightningSendTip from './LightningSendTip.tsx'
+import FollowButton from './FollowButton.tsx'
 import clsx from 'clsx'
 
 // ── Star rating display ───────────────────────────────────────────────────────
@@ -114,8 +117,16 @@ export default function SellerStorefront() {
                 {seller.location_name}
               </p>
             )}
-            <div className="flex items-center gap-4 mt-2">
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
               <Stars rating={rating_summary.avg_rating} count={rating_summary.rating_count} />
+              <SellerTierBadge
+                completedOrders={seller.confirmed_order_count}
+                avgRating={rating_summary.avg_rating}
+                size="sm"
+              />
+            </div>
+            <div className="mt-3">
+              <FollowButton sellerId={seller.id} sellerName={seller.name} />
             </div>
           </div>
         </div>
@@ -141,6 +152,12 @@ export default function SellerStorefront() {
             <p className="text-[11px] text-gray-500">Member since</p>
           </div>
         </div>
+
+        {/* Lightning tip — shown when seller has a Lightning address */}
+        <LightningSendTip
+          sellerName={seller.name}
+          lnurlSlug={seller.id}
+        />
       </div>
 
       {/* Products */}
@@ -162,31 +179,72 @@ export default function SellerStorefront() {
         )}
       </section>
 
-      {/* Recent reviews */}
+      {/* Reviews */}
       {rating_summary.rating_count > 0 && (
-        <section className="space-y-3">
+        <section className="space-y-4">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
             Reviews ({rating_summary.rating_count})
           </h2>
+
+          {/* Rating summary card */}
+          <div className="card p-4 flex gap-5 items-center">
+            <div className="text-center shrink-0">
+              <p className="text-4xl font-black text-gray-100">{rating_summary.avg_rating.toFixed(1)}</p>
+              <div className="flex justify-center gap-0.5 mt-1">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Star key={i} className={clsx(
+                    'w-3.5 h-3.5',
+                    i < Math.round(rating_summary.avg_rating) ? 'text-yellow-400 fill-yellow-400' : 'text-gray-700',
+                  )} />
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1">{rating_summary.rating_count} reviews</p>
+            </div>
+            <div className="flex-1 space-y-1.5">
+              {[5, 4, 3, 2, 1].map(star => {
+                const count = rating_summary.recent_reviews.filter(r => r.rating === star).length
+                const pct   = rating_summary.recent_reviews.length > 0
+                  ? Math.round((count / rating_summary.recent_reviews.length) * 100)
+                  : 0
+                return (
+                  <div key={star} className="flex items-center gap-2">
+                    <span className="text-[11px] text-gray-500 w-3 shrink-0">{star}</span>
+                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 shrink-0" />
+                    <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[10px] text-gray-600 w-6 text-right">{count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Review cards */}
           <div className="space-y-2">
             {rating_summary.recent_reviews.map((r, i) => (
-              <div key={i} className="card p-4 space-y-1">
+              <div key={i} className="card p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-300">{r.buyer_name}</span>
-                  <span className={clsx(
-                    'flex items-center gap-0.5 text-xs font-bold',
-                    r.rating >= 4 ? 'text-yellow-400' : r.rating >= 3 ? 'text-gray-400' : 'text-red-400',
-                  )}>
-                    <Star className={clsx('w-3 h-3', r.rating >= 4 && 'fill-yellow-400')} />
-                    {r.rating}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-300 shrink-0">
+                      {r.buyer_name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="text-xs font-semibold text-gray-300">{r.buyer_name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex gap-0.5">
+                      {Array.from({ length: 5 }).map((_, j) => (
+                        <Star key={j} className={clsx('w-3 h-3', j < r.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-700')} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-gray-600">
+                      {new Date(r.created_at).toLocaleDateString('en-KE', { day: '2-digit', month: 'short' })}
+                    </span>
+                  </div>
                 </div>
                 {r.review && (
                   <p className="text-xs text-gray-400 leading-relaxed">{r.review}</p>
                 )}
-                <p className="text-[10px] text-gray-600">
-                  {new Date(r.created_at).toLocaleDateString('en-KE')}
-                </p>
               </div>
             ))}
           </div>

@@ -17,10 +17,12 @@ use uuid::Uuid;
 
 /// Invoice validity window.
 ///
-/// 60 seconds locks in the current BTC/KES rate without giving the buyer
-/// a long window to speculate on rate movements.  The frontend shows a
-/// countdown and offers a one-click refresh when the invoice expires.
-const INVOICE_EXPIRY_SECS: i64 = 60;
+/// 15 minutes (900 s) gives buyers enough time to open their wallet, scan the
+/// QR, and approve — especially on slow mobile connections.  The frontend shows
+/// a live countdown ring and offers a one-click refresh when the invoice expires.
+/// The BTC/KES rate is locked at creation time so the seller always receives the
+/// agreed KES amount regardless of rate movements during the window.
+const INVOICE_EXPIRY_SECS: i64 = 900;
 
 // ── Response types ────────────────────────────────────────────────────────────
 

@@ -4,8 +4,11 @@ import {
   ShoppingBag, Package, Store, TrendingUp, AlertCircle,
   LogOut, Plus, UserCircle, LogIn, Menu, X, Shield,
   ArrowLeftRight, History, Settings, ShoppingCart, Search,
-  MapPin, ChevronRight, Home,
+  MapPin, ChevronRight, Home, Heart, UserCheck,
 } from 'lucide-react'
+import { useWishlist } from '../context/wishlist.tsx'
+import { useWishlistPriceAlerts } from '../hooks/useWishlistPriceAlerts.ts'
+import { useSellerFollow } from '../hooks/useSellerFollow.ts'
 import { useQuery } from '@tanstack/react-query'
 import { getRate, clearToken } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
@@ -17,6 +20,8 @@ import { PRODUCT_CATEGORIES, CATEGORY_ICONS, countryName } from '../types'
 import CurrencyConverter from './CurrencyConverter.tsx'
 import CartDrawer from './CartDrawer.tsx'
 import Footer from './Footer.tsx'
+import ToastContainer from './ToastContainer.tsx'
+import OnboardingModal from './OnboardingModal.tsx'
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 
@@ -69,7 +74,7 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
   const locationLabel = stored ? countryName(stored) : 'Africa'
 
   return (
-    <header className="fixed top-0 inset-x-0 z-40 bg-gray-900 border-b border-gray-800 h-14 shadow-lg">
+    <header role="banner" className="fixed top-0 inset-x-0 z-40 bg-gray-900 border-b border-gray-800 h-14 shadow-lg">
       <div className="flex items-center h-full px-3 gap-2 sm:gap-3 max-w-screen-2xl mx-auto">
 
         {/* Hamburger */}
@@ -178,12 +183,13 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
           {/* Cart */}
           <button
             onClick={onCartOpen}
+            aria-label={totalCount > 0 ? `Open cart, ${totalCount} item${totalCount !== 1 ? 's' : ''}` : 'Open cart'}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-gray-300 hover:text-gray-100 hover:bg-gray-800 transition-colors"
           >
             <div className="relative">
-              <ShoppingCart className="w-5 h-5" />
+              <ShoppingCart className="w-5 h-5" aria-hidden="true" />
               {totalCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-0.5 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                <span aria-hidden="true" className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-0.5 bg-brand-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
                   {totalCount > 99 ? '99+' : totalCount}
                 </span>
               )}
@@ -207,6 +213,8 @@ function MegaMenu({ open, onClose, onConverterOpen }: MegaMenuProps) {
   const navigate = useNavigate()
   const { authed, isAdmin, connect, connecting } = useAuth()
   const { farmer, needsSetup } = useCurrentFarmer()
+  const { count: wishlistCount } = useWishlist()
+  const { count: followingCount } = useSellerFollow()
   const { t } = useTranslation()
 
   function handleLogout() {
@@ -245,10 +253,15 @@ function MegaMenu({ open, onClose, onConverterOpen }: MegaMenuProps) {
           onClick={onClose}
         />
       )}
-      <aside className={clsx(
-        'fixed top-0 left-0 h-full w-80 bg-gray-900 border-r border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out',
-        open ? 'translate-x-0' : '-translate-x-full',
-      )}>
+      <aside
+        role="navigation"
+        aria-label="Main menu"
+        aria-hidden={!open}
+        className={clsx(
+          'fixed top-0 left-0 h-full w-80 bg-gray-900 border-r border-gray-800 z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-in-out',
+          open ? 'translate-x-0' : '-translate-x-full',
+        )}
+      >
 
         {/* User greeting */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800 bg-brand-500/5 shrink-0">
@@ -329,6 +342,18 @@ function MegaMenu({ open, onClose, onConverterOpen }: MegaMenuProps) {
             </p>
             <MenuItem label={t('nav.orders')} icon={<Package className="w-4 h-4" />} path="/orders" />
             <MenuItem
+              label="Wishlist"
+              icon={<Heart className="w-4 h-4" />}
+              path="/wishlist"
+              badge={wishlistCount > 0 ? String(wishlistCount) : undefined}
+            />
+            <MenuItem
+              label="Following"
+              icon={<UserCheck className="w-4 h-4" />}
+              path="/following"
+              badge={followingCount > 0 ? String(followingCount) : undefined}
+            />
+            <MenuItem
               label={t('nav.profile')}
               icon={<UserCircle className="w-4 h-4" />}
               path="/profile"
@@ -396,7 +421,7 @@ function BottomNav({ onCartOpen }: { onCartOpen: () => void }) {
   const { totalCount } = useCart()
 
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 bg-gray-900 border-t border-gray-800 z-40">
+    <nav aria-label="Bottom navigation" className="md:hidden fixed bottom-0 inset-x-0 bg-gray-900 border-t border-gray-800 z-40">
       <div className="flex items-stretch justify-around px-1 py-1 max-w-screen-sm mx-auto">
 
         <NavLink
@@ -479,7 +504,11 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen]           = useState(false)
   const [converterOpen, setConverterOpen] = useState(false)
   const [cartOpen, setCartOpen]           = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(() =>
+    !localStorage.getItem('sokopay_onboarded'),
+  )
   const { error, clearError }             = useAuth()
+  useWishlistPriceAlerts()
 
   const openMenu      = useCallback(() => setMenuOpen(true), [])
   const closeMenu     = useCallback(() => setMenuOpen(false), [])
@@ -520,7 +549,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       />
 
       {/* pt-14 clears the fixed top navbar; pb-16 clears mobile bottom nav */}
-      <main className="flex-1 pt-14 pb-16 md:pb-0">
+      <main id="main-content" className="flex-1 pt-14 pb-16 md:pb-0" tabIndex={-1}>
         {children}
       </main>
 
@@ -533,6 +562,15 @@ export default function Layout({ children }: { children: ReactNode }) {
       )}
 
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
+
+      <ToastContainer />
+
+      {showOnboarding && (
+        <OnboardingModal onClose={() => {
+          localStorage.setItem('sokopay_onboarded', '1')
+          setShowOnboarding(false)
+        }} />
+      )}
     </div>
   )
 }

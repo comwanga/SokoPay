@@ -2,13 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { useCountry } from '../hooks/useCountry.ts'
-import { Search, Package, Globe, ChevronDown, Loader2, SlidersHorizontal, X, ArrowUpDown } from 'lucide-react'
+import { useSearchHistory } from '../hooks/useSearchHistory.ts'
+import { useSmartSearch } from '../hooks/useSmartSearch.ts'
+import { Search, Package, Globe, ChevronDown, Loader2, SlidersHorizontal, X, ArrowUpDown, Clock, TrendingUp, AlertCircle, Sparkles } from 'lucide-react'
 import { listProductsPage } from '../api/client.ts'
 import { PRODUCT_CATEGORIES, CATEGORY_ICONS, COUNTRIES, countryName } from '../types'
 import { useTranslation } from '../i18n/index.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
 import ProductCard from './ProductCard.tsx'
+import EmptyState from './EmptyState.tsx'
+import { ProductGridSkeleton } from './Skeleton.tsx'
 
 type SortOption = 'newest' | 'price_asc' | 'price_desc' | 'rating'
 
@@ -80,8 +84,13 @@ export default function Marketplace() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  const { history: searchHistory, push: pushHistory, remove: removeHistory, clear: clearHistory } = useSearchHistory()
+  const [searchFocused, setSearchFocused] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
   const [debouncedSearch, setDebouncedSearch] = useState(() => searchParams.get('q') ?? '')
+  const { suggestedCategory } = useSmartSearch(debouncedSearch)
   const [category, setCategory] = useState<string>(() => searchParams.get('category') ?? '')
   const { saveCountry } = useCountry()
   const [country, setCountry] = useState<string>(
@@ -104,9 +113,24 @@ export default function Marketplace() {
   const [nextCursor, setNextCursor] = useState<string | null>(null)
 
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400)
+    const timer = setTimeout(() => {
+      const trimmed = search.trim()
+      setDebouncedSearch(trimmed)
+      if (trimmed.length >= 2) pushHistory(trimmed)
+    }, 400)
     return () => clearTimeout(timer)
-  }, [search])
+  }, [search, pushHistory])
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchFocused(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   const syncedOnce = useRef(false)
   useEffect(() => {
@@ -199,15 +223,58 @@ export default function Marketplace() {
 
       {/* Search bar + filter button */}
       <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+        <div className="relative flex-1" ref={searchRef}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none z-10" />
+          {search && (
+            <button
+              onClick={() => { setSearch(''); setDebouncedSearch('') }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 z-10"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           <input
             type="text"
             placeholder={t('market.search')}
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="input-base pl-9"
+            onFocus={() => setSearchFocused(true)}
+            className="input-base pl-9 pr-8"
           />
+          {/* Search suggestions dropdown */}
+          {searchFocused && !search && searchHistory.length > 0 && (
+            <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-gray-800 border border-gray-700 rounded-xl shadow-xl py-1 overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-1.5">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Recent searches</span>
+                <button onClick={clearHistory} className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors">Clear</button>
+              </div>
+              {searchHistory.map(term => (
+                <div key={term} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-700/50 transition-colors group">
+                  <Clock className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+                  <button
+                    className="flex-1 text-left text-sm text-gray-300"
+                    onMouseDown={() => { setSearch(term); setSearchFocused(false) }}
+                  >
+                    {term}
+                  </button>
+                  <button
+                    onMouseDown={() => removeHistory(term)}
+                    className="text-gray-700 hover:text-gray-400 opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {searchFocused && !search && searchHistory.length === 0 && (
+            <div className="absolute top-full mt-1 left-0 right-0 z-30 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-3">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                Try searching: maize, phone, fabric, tomatoes…
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Filter toggle button */}
@@ -333,6 +400,18 @@ export default function Marketplace() {
         </div>
       )}
 
+      {/* Smart category suggestion */}
+      {suggestedCategory && !category && (
+        <button
+          onClick={() => setCategory(suggestedCategory)}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-500/10 border border-brand-500/20 text-sm text-brand-300 hover:bg-brand-500/20 transition-all w-fit"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-brand-400 shrink-0" />
+          Show in <span className="font-semibold">{suggestedCategory}</span>
+          <span className="text-brand-500 text-xs">→</span>
+        </button>
+      )}
+
       {/* Category icon grid */}
       <div className="grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-12 gap-1.5">
         <button
@@ -375,32 +454,32 @@ export default function Marketplace() {
       )}
 
       {/* Skeleton grid on first load */}
-      {isFirstLoad && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="card overflow-hidden">
-              <div className="aspect-video skeleton" />
-              <div className="p-3 space-y-2">
-                <div className="skeleton h-3.5 w-3/4 rounded" />
-                <div className="skeleton h-4 w-1/2 rounded" />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {isFirstLoad && <ProductGridSkeleton count={10} />}
 
       {isError && (
-        <div className="text-center py-12 text-gray-500">
-          <p>Failed to load listings. Please refresh.</p>
-        </div>
+        <EmptyState
+          icon={<AlertCircle className="w-6 h-6" />}
+          title="Couldn't load listings"
+          description="Check your connection and try refreshing the page."
+        />
       )}
 
       {!isFirstLoad && !isError && products.length === 0 && (
-        <div className="text-center py-16 space-y-2">
-          <Package className="w-10 h-10 text-gray-700 mx-auto" />
-          <p className="text-gray-400 font-medium">{t('market.empty')}</p>
-          <p className="text-sm text-gray-600">{t('market.empty_hint')}</p>
-        </div>
+        <EmptyState
+          icon={<Package className="w-6 h-6" />}
+          title={t('market.empty')}
+          description={t('market.empty_hint')}
+          action={
+            (debouncedSearch || category) ? (
+              <button
+                onClick={() => { setSearch(''); setDebouncedSearch(''); setCategory('') }}
+                className="btn-secondary text-sm"
+              >
+                Clear filters
+              </button>
+            ) : undefined
+          }
+        />
       )}
 
       {!isFirstLoad && !isError && products.length > 0 && (

@@ -54,10 +54,26 @@ function applyTheme(theme: AppTheme) {
   } else if (theme === 'light') {
     root.classList.remove('dark')
   } else {
-    // system: mirror prefers-color-scheme
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
     root.classList.toggle('dark', prefersDark)
   }
+}
+
+// ── Language / RTL application ────────────────────────────────────────────────
+
+const LANG_CODE: Record<string, string> = {
+  English: 'en',
+  Swahili: 'sw',
+  French:  'fr',
+  Arabic:  'ar',
+}
+
+const RTL_LANGS = new Set(['Arabic'])
+
+function applyLanguage(language: string) {
+  const root = document.documentElement
+  root.setAttribute('lang', LANG_CODE[language] ?? 'en')
+  root.setAttribute('dir',  RTL_LANGS.has(language) ? 'rtl' : 'ltr')
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -90,6 +106,11 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
       return () => mq.removeEventListener('change', handler)
     }
   }, [settings.theme])
+
+  // Apply language/RTL on mount and whenever language changes
+  useEffect(() => {
+    applyLanguage(settings.language)
+  }, [settings.language])
 
   const update = useCallback((patch: Partial<DisplaySettings>) => {
     setSettings(prev => {

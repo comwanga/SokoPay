@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, useQuery } from '@tanstack/react-query'
 import {
   User, Zap, MapPin, Smartphone, Check, AlertCircle, ExternalLink,
   Loader2, ShieldCheck, RefreshCw, CheckCircle2, XCircle, Settings, ChevronRight, Code2,
+  Gift, Copy, Share2,
 } from 'lucide-react'
-import { updateProfile, verifyLnAddress, isFediContext } from '../api/client.ts'
+import { updateProfile, verifyLnAddress, isFediContext, getMyReferralCode } from '../api/client.ts'
 import { useCurrentFarmer } from '../hooks/useCurrentFarmer.ts'
+import { useToast } from '../context/toast.tsx'
 import type { LnVerifyResponse } from '../types'
 import clsx from 'clsx'
 
@@ -201,6 +203,13 @@ export default function Profile() {
   const qc = useQueryClient()
 
   const { farmer, farmerId, isLoading } = useCurrentFarmer()
+  const { toast } = useToast()
+  const { data: referral } = useQuery({
+    queryKey: ['my-referral'],
+    queryFn:  getMyReferralCode,
+    enabled:  !!farmerId,
+    staleTime: 300_000,
+  })
 
   const [name, setName] = useState('')
   const [lnAddress, setLnAddress] = useState('')
@@ -486,6 +495,59 @@ export default function Profile() {
           </button>
         </div>
       </form>
+
+      {/* Referral sharing card */}
+      {referral && (
+        <div className="border-t border-gray-800 pt-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Gift className="w-4 h-4 text-brand-400" />
+            <h3 className="text-sm font-semibold text-gray-200">Invite friends to SokoPay</h3>
+          </div>
+          <div className="bg-gradient-to-br from-brand-500/10 to-bitcoin/5 border border-brand-500/20 rounded-2xl p-4 space-y-3">
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Share your referral link and earn rewards when your friends sign up and make their first purchase.
+            </p>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2">
+                <span className="text-xs font-mono font-bold text-brand-400">{referral.referral_code}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(referral.referral_code)
+                  toast('Referral code copied!', 'success', 2000)
+                }}
+                className="p-2.5 bg-gray-800 border border-gray-700 rounded-xl text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
+                title="Copy code"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(referral.share_url)
+                  toast('Invite link copied!', 'success', 2000)
+                }}
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl bg-gray-800 border border-gray-700 text-xs font-semibold text-gray-200 hover:bg-gray-700 transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Copy link
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Join me on SokoPay — Africa's Lightning marketplace! Use my code ${referral.referral_code} at sign-up:\n${referral.share_url}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#25D366]/10 border border-[#25D366]/20 text-xs font-semibold text-[#25D366] hover:bg-[#25D366]/20 transition-colors"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                WhatsApp
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Developer settings link */}
       <div className="border-t border-gray-800 pt-5">

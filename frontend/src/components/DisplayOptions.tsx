@@ -7,10 +7,10 @@ import type { AppTheme, BtcUnit } from '../context/displaySettings.tsx'
 import { WORLD_CURRENCIES, getCurrencyMeta } from '../data/currencies.ts'
 
 const LANGUAGES = [
-  { code: 'English', label: 'English',      flag: '🇬🇧' },
-  { code: 'Swahili', label: 'Swahili (KE)', flag: '🇰🇪' },
-  // French stub — uncomment when translations are complete
-  // { code: 'French',  label: 'French',    flag: '🇫🇷' },
+  { code: 'English', label: 'English',       flag: '🇬🇧' },
+  { code: 'Swahili', label: 'Kiswahili',     flag: '🇰🇪' },
+  { code: 'French',  label: 'Français',      flag: '🇫🇷' },
+  { code: 'Arabic',  label: 'العربية (RTL)', flag: '🇸🇦' },
 ]
 
 const THEME_LABELS: Record<AppTheme, string> = {

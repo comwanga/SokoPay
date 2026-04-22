@@ -2,9 +2,11 @@
 //
 // Keys use dot notation: "section.sub_key".
 // All keys must be defined in English (the fallback language).
-// Swahili covers the core marketplace UI; French is a skeleton.
+// RTL_LANGUAGES drives dir="rtl" on the html element.
 
-export type SupportedLanguage = 'English' | 'Swahili' | 'French'
+export type SupportedLanguage = 'English' | 'Swahili' | 'French' | 'Arabic'
+
+export const RTL_LANGUAGES: SupportedLanguage[] = ['Arabic']
 
 export const en: Record<string, string> = {
   // Navigation
@@ -35,6 +37,8 @@ export const en: Record<string, string> = {
   'nav.browse_departments':  'Browse Departments',
   'nav.all_products':        'All Products',
   'nav.home':                'Home',
+  'nav.wishlist':            'Wishlist',
+  'nav.following':           'Following',
 
   // Marketplace page
   'market.title':            'Marketplace',
@@ -89,6 +93,12 @@ export const en: Record<string, string> = {
   'action.send':             'Send',
   'action.confirm':          'Confirm',
   'action.submit':           'Submit',
+  'action.close':            'Close',
+  'action.share':            'Share',
+  'action.follow':           'Follow',
+  'action.unfollow':         'Unfollow',
+  'action.add_to_cart':      'Add to cart',
+  'action.buy_now':          'Buy Now',
 
   // Order statuses
   'status.pending_payment':  'Pending payment',
@@ -100,6 +110,18 @@ export const en: Record<string, string> = {
   'status.disputed':         'Disputed',
   'status.cancelled':        'Cancelled',
   'status.failed':           'Failed',
+
+  // Wishlist
+  'wishlist.title':          'Wishlist',
+  'wishlist.empty':          'Your wishlist is empty',
+  'wishlist.empty_hint':     'Tap the heart on any product to save it here.',
+  'wishlist.saved':          'Saved to wishlist',
+  'wishlist.removed':        'Removed from wishlist',
+
+  // Following
+  'following.title':         'Following',
+  'following.empty':         'Not following anyone yet',
+  'following.empty_hint':    'Visit a seller\'s page and tap Follow.',
 }
 
 export const sw: Record<string, string> = {
@@ -131,6 +153,8 @@ export const sw: Record<string, string> = {
   'nav.browse_departments':  'Vinjari Idara',
   'nav.all_products':        'Bidhaa Zote',
   'nav.home':                'Nyumbani',
+  'nav.wishlist':            'Orodha ya Matakwa',
+  'nav.following':           'Wanaofuatwa',
 
   // Marketplace page
   'market.title':            'Soko',
@@ -185,6 +209,12 @@ export const sw: Record<string, string> = {
   'action.send':             'Tuma',
   'action.confirm':          'Thibitisha',
   'action.submit':           'Wasilisha',
+  'action.close':            'Funga',
+  'action.share':            'Shiriki',
+  'action.follow':           'Fuata',
+  'action.unfollow':         'Acha Kufuata',
+  'action.add_to_cart':      'Weka kwenye Kikapu',
+  'action.buy_now':          'Nunua Sasa',
 
   // Order statuses
   'status.pending_payment':  'Inasubiri malipo',
@@ -196,23 +226,255 @@ export const sw: Record<string, string> = {
   'status.disputed':         'Mgogoro',
   'status.cancelled':        'Imefutwa',
   'status.failed':           'Imeshindwa',
+
+  // Wishlist
+  'wishlist.title':          'Orodha ya Matakwa',
+  'wishlist.empty':          'Orodha yako ya matakwa ni tupu',
+  'wishlist.empty_hint':     'Bonyeza moyo kwenye bidhaa yoyote kuihifadhi hapa.',
+  'wishlist.saved':          'Imehifadhiwa kwenye orodha ya matakwa',
+  'wishlist.removed':        'Imeondolewa kwenye orodha ya matakwa',
+
+  // Following
+  'following.title':         'Wanaofuatwa',
+  'following.empty':         'Hujamfuata mtu yeyote bado',
+  'following.empty_hint':    'Tembelea ukurasa wa muuzaji na ubonyeze Fuata.',
 }
 
-// French is a stub — falls back to English for untranslated keys.
 export const fr: Record<string, string> = {
+  // Navigation
+  'nav.section.marketplace': 'Marché',
   'nav.browse':              'Parcourir',
   'nav.orders':              'Mes Commandes',
+  'nav.price_index':         'Indice des Prix',
+  'nav.section.selling':     'Vente',
   'nav.sell':                'Mes Annonces',
+  'nav.payments':            'Historique des Paiements',
+  'nav.settings':            'Options d\'affichage',
+  'nav.new_listing':         'Nouvelle Annonce',
+  'nav.section.admin':       'Administration',
+  'nav.admin':               'Litiges et Utilisateurs',
+  'nav.section.account':     'Compte',
+  'nav.profile':             'Profil',
+  'nav.connect':             'Connexion',
+  'nav.connecting':          'Connexion…',
   'nav.sign_out':            'Déconnexion',
+  'nav.add_lightning':       'Ajoutez votre adresse Lightning pour recevoir des paiements',
+  'nav.converter':           'Convertisseur',
+  'nav.deliver_to':          'Livrer à',
+  'nav.hello':               'Bonjour',
+  'nav.sign_in':             'Connexion',
+  'nav.cart':                'Panier',
+  'nav.account':             'Compte',
+  'nav.account_and_lists':   'Compte et Listes',
+  'nav.browse_departments':  'Parcourir les Rayons',
+  'nav.all_products':        'Tous les Produits',
+  'nav.home':                'Accueil',
+  'nav.wishlist':            'Favoris',
+  'nav.following':           'Abonnements',
+
+  // Marketplace page
   'market.title':            'Marché',
   'market.subtitle':         'Achetez et vendez, payez en Lightning',
   'market.search':           'Rechercher produits, vendeurs…',
+  'market.all_countries':    'Tous les pays',
+  'market.all_categories':   'Tout',
   'market.load_more':        'Charger plus',
+  'market.loading':          'Chargement…',
   'market.empty':            'Aucun produit trouvé.',
+  'market.empty_hint':       'Essayez une autre recherche ou catégorie.',
+  'market.only_x_left':      'Seulement {qty} {unit} restant(s)',
+  'market.ships_globally':   'Livraison mondiale',
+  'market.local':            'Local',
+  'market.global':           'Mondial',
+
+  // Marketplace filters / sort
+  'market.filters':          'Filtres',
+  'market.sort_by':          'Trier par',
+  'market.in_stock_only':    'En stock uniquement',
+  'market.min_price':        'Prix min (KES)',
+  'market.max_price':        'Prix max (KES)',
+  'market.clear_filters':    'Effacer les filtres',
+  'market.sort.newest':      'Plus récent',
+  'market.sort.price_asc':   'Prix : Croissant',
+  'market.sort.price_desc':  'Prix : Décroissant',
+  'market.sort.rating':      'Mieux notés',
+  'market.seller_verified':  'Vendeur vérifié',
+
+  // Connect prompt
+  'connect.title':           'Connexion requise',
+  'connect.subtitle':        'Cette fonctionnalité nécessite une identité Nostr. Ouvrez SokoPay dans Fedi pour un accès instantané.',
+  'connect.button':          'Se connecter avec Nostr',
+  'connect.connecting':      'Connexion…',
+
+  // Display options
+  'settings.title':          'Options d\'affichage',
+  'settings.btc_unit':       'Unité Bitcoin',
+  'settings.fiat_currency':  'Devise fiduciaire',
+  'settings.theme':          'Thème de l\'application',
+  'settings.language':       'Langue de l\'application',
+  'settings.search_currency':'Rechercher devise ou pays…',
+  'settings.no_currencies':  'Aucune devise correspondante',
+  'settings.theme_system':   'Suivre le système',
+  'settings.theme_dark':     'Sombre',
+  'settings.theme_light':    'Clair',
+
+  // Common actions
+  'action.back':             'Retour',
+  'action.cancel':           'Annuler',
+  'action.save':             'Enregistrer',
+  'action.send':             'Envoyer',
+  'action.confirm':          'Confirmer',
+  'action.submit':           'Soumettre',
+  'action.close':            'Fermer',
+  'action.share':            'Partager',
+  'action.follow':           'Suivre',
+  'action.unfollow':         'Ne plus suivre',
+  'action.add_to_cart':      'Ajouter au panier',
+  'action.buy_now':          'Acheter maintenant',
+
+  // Order statuses
+  'status.pending_payment':  'En attente de paiement',
+  'status.paid':             'Payé',
+  'status.processing':       'En traitement',
+  'status.in_transit':       'En transit',
+  'status.delivered':        'Livré',
+  'status.confirmed':        'Confirmé',
+  'status.disputed':         'Litige',
+  'status.cancelled':        'Annulé',
+  'status.failed':           'Échoué',
+
+  // Wishlist
+  'wishlist.title':          'Favoris',
+  'wishlist.empty':          'Votre liste de favoris est vide',
+  'wishlist.empty_hint':     'Appuyez sur le cœur sur un produit pour le sauvegarder.',
+  'wishlist.saved':          'Ajouté aux favoris',
+  'wishlist.removed':        'Retiré des favoris',
+
+  // Following
+  'following.title':         'Abonnements',
+  'following.empty':         'Vous ne suivez personne encore',
+  'following.empty_hint':    'Visitez la page d\'un vendeur et appuyez sur Suivre.',
+}
+
+export const ar: Record<string, string> = {
+  // Navigation
+  'nav.section.marketplace': 'السوق',
+  'nav.browse':              'تصفح',
+  'nav.orders':              'طلباتي',
+  'nav.price_index':         'مؤشر الأسعار',
+  'nav.section.selling':     'البيع',
+  'nav.sell':                'قوائمي',
+  'nav.payments':            'سجل المدفوعات',
+  'nav.settings':            'خيارات العرض',
+  'nav.new_listing':         'قائمة جديدة',
+  'nav.section.admin':       'الإدارة',
+  'nav.admin':               'النزاعات والمستخدمون',
+  'nav.section.account':     'الحساب',
+  'nav.profile':             'الملف الشخصي',
+  'nav.connect':             'اتصال',
+  'nav.connecting':          'جارٍ الاتصال…',
+  'nav.sign_out':            'تسجيل الخروج',
+  'nav.add_lightning':       'أضف عنوان Lightning لاستقبال المدفوعات',
+  'nav.converter':           'المحول',
+  'nav.deliver_to':          'توصيل إلى',
+  'nav.hello':               'مرحباً',
+  'nav.sign_in':             'تسجيل الدخول',
+  'nav.cart':                'السلة',
+  'nav.account':             'الحساب',
+  'nav.account_and_lists':   'الحساب والقوائم',
+  'nav.browse_departments':  'تصفح الأقسام',
+  'nav.all_products':        'جميع المنتجات',
+  'nav.home':                'الرئيسية',
+  'nav.wishlist':            'قائمة الرغبات',
+  'nav.following':           'المتابَعون',
+
+  // Marketplace page
+  'market.title':            'السوق',
+  'market.subtitle':         'اشترِ وبِع أي شيء، ادفع بـ Lightning',
+  'market.search':           'ابحث عن منتجات، بائعين…',
+  'market.all_countries':    'جميع الدول',
+  'market.all_categories':   'الكل',
+  'market.load_more':        'تحميل المزيد',
+  'market.loading':          'جارٍ التحميل…',
+  'market.empty':            'لم يتم العثور على منتجات.',
+  'market.empty_hint':       'جرّب بحثاً أو فئة مختلفة.',
+  'market.only_x_left':      '{qty} {unit} فقط متبقية',
+  'market.ships_globally':   'شحن عالمي',
+  'market.local':            'محلي',
+  'market.global':           'عالمي',
+
+  // Marketplace filters / sort
+  'market.filters':          'الفلاتر',
+  'market.sort_by':          'ترتيب حسب',
+  'market.in_stock_only':    'المتوفرة فقط',
+  'market.min_price':        'الحد الأدنى للسعر',
+  'market.max_price':        'الحد الأقصى للسعر',
+  'market.clear_filters':    'مسح الفلاتر',
+  'market.sort.newest':      'الأحدث',
+  'market.sort.price_asc':   'السعر: من الأقل للأعلى',
+  'market.sort.price_desc':  'السعر: من الأعلى للأقل',
+  'market.sort.rating':      'الأعلى تقييماً',
+  'market.seller_verified':  'بائع موثق',
+
+  // Connect prompt
+  'connect.title':           'اتصل للمتابعة',
+  'connect.subtitle':        'تتطلب هذه الميزة هوية Nostr. افتح SokoPay داخل Fedi للوصول الفوري.',
+  'connect.button':          'الاتصال بـ Nostr',
+  'connect.connecting':      'جارٍ الاتصال…',
+
+  // Display options
+  'settings.title':          'خيارات العرض',
+  'settings.btc_unit':       'وحدة Bitcoin',
+  'settings.fiat_currency':  'العملة الورقية',
+  'settings.theme':          'مظهر التطبيق',
+  'settings.language':       'لغة التطبيق',
+  'settings.search_currency':'ابحث عن عملة أو دولة…',
+  'settings.no_currencies':  'لا توجد عملات مطابقة',
+  'settings.theme_system':   'اتبع النظام',
+  'settings.theme_dark':     'داكن',
+  'settings.theme_light':    'فاتح',
+
+  // Common actions
+  'action.back':             'رجوع',
+  'action.cancel':           'إلغاء',
+  'action.save':             'حفظ',
+  'action.send':             'إرسال',
+  'action.confirm':          'تأكيد',
+  'action.submit':           'إرسال',
+  'action.close':            'إغلاق',
+  'action.share':            'مشاركة',
+  'action.follow':           'متابعة',
+  'action.unfollow':         'إلغاء المتابعة',
+  'action.add_to_cart':      'أضف إلى السلة',
+  'action.buy_now':          'اشترِ الآن',
+
+  // Order statuses
+  'status.pending_payment':  'في انتظار الدفع',
+  'status.paid':             'مدفوع',
+  'status.processing':       'قيد المعالجة',
+  'status.in_transit':       'في الطريق',
+  'status.delivered':        'تم التسليم',
+  'status.confirmed':        'مؤكد',
+  'status.disputed':         'متنازع عليه',
+  'status.cancelled':        'ملغى',
+  'status.failed':           'فشل',
+
+  // Wishlist
+  'wishlist.title':          'قائمة الرغبات',
+  'wishlist.empty':          'قائمة رغباتك فارغة',
+  'wishlist.empty_hint':     'انقر على القلب في أي منتج لحفظه هنا.',
+  'wishlist.saved':          'تم الحفظ في قائمة الرغبات',
+  'wishlist.removed':        'تمت إزالته من قائمة الرغبات',
+
+  // Following
+  'following.title':         'المتابَعون',
+  'following.empty':         'لا تتابع أحداً بعد',
+  'following.empty_hint':    'تفضل بزيارة صفحة البائع واضغط متابعة.',
 }
 
 export const TRANSLATIONS: Record<SupportedLanguage, Record<string, string>> = {
   English: en,
   Swahili: sw,
   French:  fr,
+  Arabic:  ar,
 }

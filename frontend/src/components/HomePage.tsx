@@ -8,8 +8,10 @@ import {
 import { listProducts, getProduct, formatKes } from '../api/client.ts'
 import { PRODUCT_CATEGORIES, CATEGORY_ICONS, countryName } from '../types'
 import { useRecentlyViewed } from '../hooks/useRecentlyViewed.ts'
+import { useSellerFollow } from '../hooks/useSellerFollow.ts'
 import { useCountry } from '../hooks/useCountry.ts'
 import ProductCard from './ProductCard.tsx'
+import LeaderboardSection from './LeaderboardSection.tsx'
 import clsx from 'clsx'
 import type { Product } from '../types'
 
@@ -325,6 +327,20 @@ function TrustBar() {
 export default function HomePage() {
   const { country } = useCountry()
   const label = country ? countryName(country) : undefined
+  const { ids: followedIds } = useSellerFollow()
+
+  const followedProductsQueries = useQueries({
+    queries: followedIds.slice(0, 5).map(sellerId => ({
+      queryKey: ['seller-products-home', sellerId],
+      queryFn:  () => listProducts({ seller_id: sellerId, sort: 'newest', per_page: 6, in_stock: true }),
+      staleTime: 120_000,
+    })),
+  })
+
+  const followedProducts = followedProductsQueries
+    .filter(q => q.data && q.data.length > 0)
+    .flatMap(q => q.data as Product[])
+    .slice(0, 12)
 
   const { data: topPicks } = useQuery({
     queryKey: ['home-top-picks', country],
@@ -334,8 +350,8 @@ export default function HomePage() {
   })
 
   const { data: trending } = useQuery({
-    queryKey: ['home-trending', country],
-    queryFn: () => listProducts({ sort: 'rating', country: country || undefined, in_stock: true, per_page: 12 }),
+    queryKey: ['home-trending'],
+    queryFn: () => listProducts({ sort: 'newest', in_stock: true, per_page: 12 }),
     staleTime: 60_000,
   })
 
@@ -417,6 +433,18 @@ export default function HomePage() {
 
       {/* Recently viewed */}
       <RecentlyViewedRow />
+
+      {/* From sellers you follow */}
+      {followedProducts.length > 0 && (
+        <ProductRow
+          title="From Sellers You Follow 💛"
+          products={followedProducts}
+          viewAllLink="/following"
+        />
+      )}
+
+      {/* Top Sellers leaderboard */}
+      <LeaderboardSection />
 
       {/* CTA banner: sell on SokoPay */}
       <SellCTABanner />

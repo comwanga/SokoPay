@@ -15,8 +15,13 @@
     <meta name="apple-mobile-web-app-title" content="SokoPay" />
     <link rel="apple-touch-icon" href="/logo.svg" />
 
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
     <!-- SEO -->
-    <meta name="description" content="Buy and sell agricultural products. Pay with M-Pesa or Bitcoin Lightning." />
+    <meta name="description" content="Buy and sell in Africa — pay with M-Pesa or Bitcoin Lightning. No bank account needed." />
 
     <script>
       // Restore path encoded by 404.html for GitHub Pages SPA routing
@@ -38,6 +43,13 @@
     </script>
   </head>
   <body>
+    <!-- Skip navigation for keyboard users -->
+    <a
+      href="#main-content"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:rounded-lg focus:bg-brand-500 focus:text-white focus:font-semibold focus:text-sm focus:shadow-lg"
+    >
+      Skip to main content
+    </a>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
