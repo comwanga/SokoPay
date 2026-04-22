@@ -91,7 +91,7 @@ function TopNavbar({ onMenuOpen, onCartOpen, onConverterOpen }: TopNavbarProps) 
           <div className="w-8 h-8 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center group-hover:bg-brand-500/30 transition-colors">
             <Store className="w-4 h-4 text-brand-400" />
           </div>
-          <span className="text-base font-bold text-gray-100 hidden sm:block leading-tight">SokoPay</span>
+          <span className="text-base font-bold text-gray-100 leading-tight">SokoPay</span>
         </Link>
 
         {/* Deliver-to pill (desktop) */}
