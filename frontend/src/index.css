@@ -35,6 +35,11 @@
     }
   }
 
+  @keyframes card-img-fade {
+    from { opacity: 0.25; }
+    to   { opacity: 1; }
+  }
+
   /* Respect reduced motion globally */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

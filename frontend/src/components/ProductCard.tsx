@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Globe, ShieldCheck, BadgeCheck, MapPin, Check, ShoppingCart, Star, Zap, Heart } from 'lucide-react'
@@ -53,7 +53,27 @@ export default function ProductCard({ product }: { product: Product }) {
     staleTime: 60_000,
   })
 
-  const primaryImage = product.images.find(i => i.is_primary) ?? product.images[0]
+  // ── Image carousel ─────────────────────────────────────────────────────────
+  // Sort so the primary image always comes first, then cycle through the rest.
+  const sortedImages = [
+    ...product.images.filter(i => i.is_primary),
+    ...product.images.filter(i => !i.is_primary).sort((a, b) => a.sort_order - b.sort_order),
+  ]
+  const hasMultiple      = sortedImages.length > 1
+  const [imgIdx, setImgIdx]     = useState(0)
+  const [paused, setPaused]     = useState(false)
+  const intervalRef             = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!hasMultiple || paused) return
+    intervalRef.current = setInterval(() => {
+      setImgIdx(i => (i + 1) % sortedImages.length)
+    }, 3000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [hasMultiple, paused, sortedImages.length])
+
+  const activeImage = sortedImages[imgIdx] ?? null
+
   const qty          = parseFloat(product.quantity_avail)
   const inCart       = items.some(i => i.product.id === product.id)
   const isLowStock   = qty <= 10 && qty > 0
@@ -93,17 +113,21 @@ export default function ProductCard({ product }: { product: Product }) {
   return (
     <article
       onClick={() => navigate(`/products/${product.id}`)}
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
       aria-label={`${product.title}, ${formatKes(product.price_kes)} per ${product.unit}`}
       className="group cursor-pointer bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-gray-700 hover:shadow-xl hover:shadow-black/30 transition-all duration-200 flex flex-col"
     >
-      {/* Product image — 4:3 aspect for more visual impact */}
+      {/* Product image — 4:3 aspect, auto-cycling carousel when >1 image */}
       <div className="aspect-[4/3] bg-gray-800 relative overflow-hidden">
-        {primaryImage ? (
+        {activeImage ? (
           <img
-            src={primaryImage.url}
+            key={imgIdx}
+            src={activeImage.url}
             alt={product.title}
             loading="lazy"
             decoding="async"
+            style={{ animation: hasMultiple ? 'card-img-fade 0.4s ease-in-out' : undefined }}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
@@ -112,6 +136,21 @@ export default function ProductCard({ product }: { product: Product }) {
             <span className="text-[11px] text-gray-600 font-medium px-3 text-center line-clamp-2">
               {product.title}
             </span>
+          </div>
+        )}
+
+        {/* Dot indicators — only shown when multiple images exist */}
+        {hasMultiple && (
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+            {sortedImages.map((_, i) => (
+              <span
+                key={i}
+                className={clsx(
+                  'rounded-full transition-all duration-300 bg-white/80',
+                  i === imgIdx ? 'w-4 h-1.5' : 'w-1.5 h-1.5 opacity-50',
+                )}
+              />
+            ))}
           </div>
         )}
 
