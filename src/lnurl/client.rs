@@ -22,20 +22,9 @@ struct LnurlPayParams {
     tag: String,
 }
 
-/// Extra info some wallets send back after generating an invoice (e.g. a thank-you message).
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SuccessAction {
-    pub tag: String,             // "message", "url", "aes"
-    pub message: Option<String>, // for tag="message"
-    pub url: Option<String>,     // for tag="url"
-    pub description: Option<String>,
-}
-
 #[derive(Deserialize)]
 struct LnurlInvoiceResponse {
     pr: String,
-    #[serde(rename = "successAction")]
-    success_action: Option<SuccessAction>,
     /// LUD-21: verify URL returned by some wallets (Alby, LNbits, Blink, Coinos…).
     /// Polling GET on this URL returns {"settled": bool, "preimage": "..."}.
     verify: Option<String>,
@@ -43,11 +32,10 @@ struct LnurlInvoiceResponse {
 
 // ── Public result types ───────────────────────────────────────────────────────
 
-/// Returned by `request_invoice()` — bolt11 plus optional wallet feedback.
+/// Returned by `request_invoice()` — bolt11 plus the optional LUD-21 verify URL.
 #[derive(Debug, Clone)]
 pub struct LnurlInvoice {
     pub bolt11: String,
-    pub success_action: Option<SuccessAction>,
     /// LUD-21 verify URL, if the seller's wallet supports it.
     /// A background worker polls this URL to auto-detect payment.
     pub verify_url: Option<String>,
@@ -351,15 +339,6 @@ impl LnurlClient {
             return Err(AppError::Lnurl("Received empty bolt11 invoice".into()));
         }
 
-        if let Some(ref sa) = inv.success_action {
-            tracing::debug!(
-                tag = %sa.tag,
-                message = ?sa.message,
-                url = ?sa.url,
-                "LNURL successAction received from seller wallet"
-            );
-        }
-
         if inv.verify.is_some() {
             tracing::debug!(
                 has_verify_url = true,
@@ -369,7 +348,6 @@ impl LnurlClient {
 
         Ok(LnurlInvoice {
             bolt11: inv.pr,
-            success_action: inv.success_action,
             verify_url: inv.verify,
         })
     }

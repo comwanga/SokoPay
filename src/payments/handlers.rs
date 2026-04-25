@@ -145,17 +145,14 @@ async fn get_or_fetch_rate(state: &SharedState) -> AppResult<Decimal> {
 ///
 /// Generates a BOLT11 Lightning invoice for the given order.
 ///
-/// Invoice source (in priority order):
-///   1. BTCPay Server (platform node) — reliable, no dependency on seller's wallet.
-///      The BTCPay invoice ID is stored so the webhook can auto-settle on payment.
-///   2. Seller's Lightning Address via LNURL-pay — fallback when BTCPay is not
-///      configured. Requires the seller to have a working wallet and LNURL endpoint.
+/// Invoice is generated directly from the seller's Lightning Address / LNURL.
+/// Funds go straight to the seller's wallet — the platform holds nothing.
 ///
-/// Invoice expiry: 60 seconds. The KES→sats rate is locked at creation time.
+/// Invoice expiry: 15 minutes. The KES→sats rate is locked at creation time.
 /// If the invoice expires the buyer requests a new one (fresh rate).
 ///
 /// Idempotent: an existing non-expired pending invoice for this order is returned
-/// as-is (reused=true) to avoid hitting BTCPay/LNURL on every retry.
+/// as-is (reused=true) to avoid hitting the seller's LNURL endpoint on every retry.
 pub async fn create_invoice(
     State(state): State<SharedState>,
     claims: Claims,
@@ -166,19 +163,16 @@ pub async fn create_invoice(
         .ok_or_else(|| AppError::Forbidden("Must be a registered user".into()))?;
 
     // Fetch order to verify buyer and get totals.
-    // product_title is NOT a column on orders — it lives in the products table.
     #[derive(FromRow)]
     struct OrderInfo {
         buyer_id: Uuid,
         seller_id: Uuid,
         total_kes: Decimal,
         status: String,
-        product_title: String,
     }
     let order: Option<OrderInfo> = sqlx::query_as(
-        "SELECT o.buyer_id, o.seller_id, o.total_kes, o.status, p.title AS product_title
+        "SELECT o.buyer_id, o.seller_id, o.total_kes, o.status
          FROM orders o
-         JOIN products p ON p.id = o.product_id
          WHERE o.id = $1",
     )
     .bind(body.order_id)

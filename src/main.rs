@@ -107,29 +107,18 @@ async fn main() -> Result<()> {
     let oracle = RateOracle::new(&config, http.clone());
     let lnurl = LnurlClient::new(http.clone());
 
-    let mpesa: Option<MpesaClient> =
-        if let (Some(key), Some(secret), Some(shortcode), Some(passkey), Some(cb_url)) = (
-            config.mpesa_consumer_key.clone(),
-            config.mpesa_consumer_secret.clone(),
-            config.mpesa_shortcode.clone(),
-            config.mpesa_passkey.clone(),
-            config.mpesa_callback_url.clone(),
-        ) {
-            let env = DarajaEnv::from_str(&config.mpesa_env);
-            tracing::info!("M-Pesa STK Push enabled ({:?})", env);
-            Some(MpesaClient::new(
-                http.clone(),
-                env,
-                key,
-                secret,
-                shortcode,
-                passkey,
-                cb_url,
-            ))
-        } else {
-            tracing::info!("M-Pesa not configured — STK Push disabled");
-            None
-        };
+    let mpesa: Option<MpesaClient> = if let (Some(key), Some(secret), Some(shortcode)) = (
+        config.mpesa_consumer_key.clone(),
+        config.mpesa_consumer_secret.clone(),
+        config.mpesa_shortcode.clone(),
+    ) {
+        let env = DarajaEnv::from_str(&config.mpesa_env);
+        tracing::info!("M-Pesa B2C enabled ({:?})", env);
+        Some(MpesaClient::new(http.clone(), env, key, secret, shortcode))
+    } else {
+        tracing::info!("M-Pesa not configured — B2C disabled");
+        None
+    };
 
     if config.smtp_host.is_some() {
         tracing::info!(

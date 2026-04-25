@@ -66,23 +66,6 @@ pub fn record_stk_push_initiated() {
     metrics::counter!("sokopay_stk_push_initiated_total").increment(1);
 }
 
-/// An M-Pesa STK Push callback arrived (result_code = 0 means success).
-pub fn record_stk_push_result(success: bool) {
-    let status = if success { "ok" } else { "failed" };
-    metrics::counter!("sokopay_stk_push_results_total", "status" => status).increment(1);
-}
-
-/// Seconds between STK Push initiation and Daraja's callback arriving.
-/// Useful for alerting when Daraja is slow or callbacks are being dropped.
-pub fn record_stk_push_callback_lag(seconds: f64) {
-    metrics::histogram!("sokopay_stk_push_callback_lag_seconds").record(seconds);
-}
-
-/// Seconds between Lightning invoice creation and BTCPay's settlement webhook.
-pub fn record_btcpay_invoice_settlement(seconds: f64) {
-    metrics::histogram!("sokopay_btcpay_invoice_settlement_seconds").record(seconds);
-}
-
 /// Seconds between B2C disbursement initiation and Daraja's result callback.
 pub fn record_disbursement_processing(seconds: f64) {
     metrics::histogram!("sokopay_disbursement_processing_seconds").record(seconds);
