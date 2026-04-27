@@ -173,6 +173,9 @@ export default function ProductForm() {
       queryClient.invalidateQueries({ queryKey: ['home-trending'] })
       queryClient.invalidateQueries({ queryKey: ['home-top-picks'] })
       queryClient.invalidateQueries({ queryKey: ['home-spotlight'] })
+      queryClient.invalidateQueries({ queryKey: ['my-products'] })
+      queryClient.invalidateQueries({ queryKey: ['leaderboard-products'] })
+      queryClient.invalidateQueries({ queryKey: ['seller-products-home'] })
       navigate('/sell')
     },
     onError: (e: Error) => setError(e.message),
