@@ -90,7 +90,6 @@ impl KeyExtractor for TrustedIpExtractor {
         // No IP found — fall back to loopback so the request is allowed through
         // rather than rejected. Rate limiting without an IP is better than
         // blocking all users whose IP we cannot identify.
-        tracing::warn!("Rate-limit key extraction failed: no IP header found. Falling back to loopback.");
         Ok(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
     }
 }
