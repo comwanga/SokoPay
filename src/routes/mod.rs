@@ -48,34 +48,52 @@ impl KeyExtractor for TrustedIpExtractor {
     fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
         let headers = req.headers();
 
-        // Try each source in trust order, parsing each to a real IpAddr so
-        // garbage values are rejected rather than silently used as rate-limit keys.
-        headers
+        // CF-Connecting-IP: injected by Cloudflare edge, clients cannot forge it.
+        if let Some(ip) = headers
             .get("CF-Connecting-IP")
-            .or_else(|| headers.get("X-Real-IP"))
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
-            .or_else(|| {
-                // Rightmost XFF entry: the one the nearest proxy added.
-                // Unlike the leftmost entry (client-supplied), this is controlled
-                // by infrastructure and is much harder to spoof.
-                headers
-                    .get("x-forwarded-for")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| {
-                        s.split(',')
-                            .next_back()
-                            .and_then(|ip| ip.trim().parse::<std::net::IpAddr>().ok())
-                    })
+        {
+            return Ok(ip);
+        }
+
+        // X-Real-IP: set by nginx via `proxy_set_header X-Real-IP $remote_addr`.
+        if let Some(ip) = headers
+            .get("X-Real-IP")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+        {
+            return Ok(ip);
+        }
+
+        // X-Forwarded-For leftmost entry: Railway (and most proxies) insert the
+        // real client IP as the first entry. The rightmost entry is the proxy's
+        // own IP, which is shared across all users — using it collapses all
+        // clients into one rate-limit bucket, causing blanket 429s on Railway.
+        if let Some(ip) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| {
+                s.split(',')
+                    .next()
+                    .and_then(|ip| ip.trim().parse::<std::net::IpAddr>().ok())
             })
-            .or_else(|| {
-                // Socket peer address — only present when the router uses
-                // into_make_service_with_connect_info (not required to enable this extractor).
-                req.extensions()
-                    .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-                    .map(|ci| ci.0.ip())
-            })
-            .ok_or(GovernorError::UnableToExtractKey)
+        {
+            return Ok(ip);
+        }
+
+        // Socket peer address (only present with into_make_service_with_connect_info).
+        if let Some(addr) = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        {
+            return Ok(addr.0.ip());
+        }
+
+        // No IP found — fall back to loopback so the request is allowed through
+        // rather than rejected. Rate limiting without an IP is better than
+        // blocking all users whose IP we cannot identify.
+        Ok(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
     }
 }
 
