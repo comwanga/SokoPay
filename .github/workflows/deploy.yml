@@ -1,0 +1,36 @@
+name: Deploy Backend
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if backend files changed
+        id: changes
+        run: |
+          git diff --name-only HEAD~1 HEAD | grep -qE '^(src/|migrations/|Cargo\.toml|Cargo\.lock|Dockerfile)' \
+            && echo "changed=true" >> $GITHUB_OUTPUT \
+            || echo "changed=false" >> $GITHUB_OUTPUT
+
+      - name: Install Railway CLI
+        if: steps.changes.outputs.changed == 'true'
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        if: steps.changes.outputs.changed == 'true'
+        run: railway up --service sokopay
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
