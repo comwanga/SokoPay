@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, X, MapPin, Loader2, Globe, ImagePlus } from 'lucide-react'
 import {
   getProduct, createProduct, updateProduct,
@@ -29,6 +29,7 @@ const COUNTRIES = [
 export default function ProductForm() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const isEdit = !!id
 
   const [title, setTitle]               = useState('')
@@ -167,7 +168,13 @@ export default function ProductForm() {
       }
       return productId
     },
-    onSuccess: () => navigate('/sell'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['home-new-arrivals'] })
+      queryClient.invalidateQueries({ queryKey: ['home-trending'] })
+      queryClient.invalidateQueries({ queryKey: ['home-top-picks'] })
+      queryClient.invalidateQueries({ queryKey: ['home-spotlight'] })
+      navigate('/sell')
+    },
     onError: (e: Error) => setError(e.message),
   })
 
