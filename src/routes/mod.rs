@@ -32,7 +32,7 @@ use tower_governor::{
 ///   1. CF-Connecting-IP — Cloudflare injects this; clients cannot forge it.
 ///   2. X-Real-IP        — nginx sets this via `proxy_set_header X-Real-IP $remote_addr`.
 ///   3. Rightmost XFF    — the entry appended by the closest upstream proxy (e.g. Railway).
-///                         Leftmost entries are client-supplied and must not be trusted.
+///      Leftmost entries are client-supplied and must not be trusted.
 ///   4. ConnectInfo      — raw socket peer address (requires into_make_service_with_connect_info).
 ///
 /// Falls back to loopback (127.0.0.1) with a warning when no IP can be extracted,
